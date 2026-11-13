@@ -1,4 +1,5 @@
 import mongoose, { Schema } from "mongoose";
+import crypto from "crypto";
 import { User } from "./auth.interface";
 
 const addressSchemaDefinition = {
@@ -61,6 +62,20 @@ const userSchemaDefinition: any = {
     presentAddress: addressSchemaDefinition,
     permanentAddress: addressSchemaDefinition,
 
+    referralCode: {
+        type: String,
+        unique: true,
+        sparse: true,
+        trim: true,
+        uppercase: true,
+    },
+
+    referredBy: {
+        type: Schema.Types.ObjectId,
+        ref: "User",
+        default: null,
+    },
+
     isActive: {
         type: Boolean,
         default: true,
@@ -93,6 +108,29 @@ const UserSchema = new Schema<User>(userSchemaDefinition, {
     },
 });
 
+// Generate unique random referral code before save and verify no duplicates exist
+UserSchema.pre("save", async function () {
+    if (!this.referralCode) {
+        const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        let isUnique = false;
+        let code = "";
+
+        while (!isUnique) {
+            code = "";
+            for (let i = 0; i < 8; i++) {
+                code += chars.charAt(crypto.randomInt(0, chars.length));
+            }
+
+            const existing = await mongoose.models.User?.findOne({ referralCode: code });
+            if (!existing) {
+                isUnique = true;
+            }
+        }
+
+        this.referralCode = code;
+    }
+});
+
 // Authentication lookup (optimized for isDeleted filtering)
 UserSchema.index({ email: 1 }, { unique: true });
 UserSchema.index({ email: 1, isDeleted: 1 });
@@ -102,6 +140,10 @@ UserSchema.index({ isActive: 1, isDeleted: 1 });
 UserSchema.index({ isEmailVerified: 1, isDeleted: 1 });
 UserSchema.index({ "presentAddress.location": "2dsphere" });
 UserSchema.index({ "permanentAddress.location": "2dsphere" });
+
+// Referral indexes
+UserSchema.index({ referralCode: 1 }, { unique: true, sparse: true });
+UserSchema.index({ referredBy: 1 });
 
 // Activity tracking optimization
 UserSchema.index({ lastLogin: -1 });

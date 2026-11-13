@@ -1,3 +1,5 @@
+import { Types } from "mongoose";
+
 export type UserRole = "ADMIN" | "USER";
 
 export interface Address {
@@ -22,6 +24,8 @@ export interface User {
     language?: string;
     presentAddress?: Address;
     permanentAddress?: Address;
+    referralCode?: string;
+    referredBy?: Types.ObjectId | null;
     isActive: boolean;
     isEmailVerified: boolean;
     isDeleted: boolean;

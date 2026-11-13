@@ -1,0 +1,62 @@
+{
+    "name": "findbookstay-backend",
+    "version": "1.0.0",
+    "description": "Backend API for FindBookStay - Verified home rentals, exclusive stays, sports turfs & properties.",
+    "main": "dist/server.js",
+    "scripts": {
+        "build": "tsc",
+        "start": "node dist/server.js",
+        "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+        "lint": "npx eslint src",
+        "lint:fix": "npx eslint src --fix",
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "keywords": [
+        "findbookstay",
+        "home-rentals",
+        "exclusive-stays",
+        "sports-turfs",
+        "property-marketplace",
+        "bachelor-seats",
+        "hotel-booking",
+        "real-estate",
+        "mongodb",
+        "express",
+        "typescript",
+        "rest-api"
+    ],
+    "author": "Appon Islam",
+    "license": "MIT",
+    "type": "commonjs",
+    "dependencies": {
+        "@types/pdfkit": "^0.17.6",
+        "axios": "^1.13.6",
+        "bcrypt": "^6.0.0",
+        "cookie-parser": "^1.4.7",
+        "cors": "^2.8.6",
+        "dotenv": "^17.3.1",
+        "express": "^5.2.1",
+        "http-status": "^2.1.0",
+        "ioredis": "^5.10.1",
+        "jsonwebtoken": "^9.0.3",
+        "mongoose": "^9.2.1",
+        "morgan": "^1.11.0",
+        "nodemailer": "^10.5.0",
+        "pdfkit": "^0.19.1",
+        "resend": "^6.18.1",
+        "socket.io": "^4.8.3",
+        "ts-node-dev": "^2.0.0",
+        "zod": "^4.3.6"
+    },
+    "devDependencies": {
+        "@types/bcrypt": "^6.0.0",
+        "@types/cookie-parser": "^1.4.10",
+        "@types/cors": "^2.8.19",
+        "@types/express": "^5.0.6",
+        "@types/jsonwebtoken": "^9.0.10",
+        "@types/morgan": "^1.9.10",
+        "@types/node": "^25.2.3",
+        "@types/nodemailer": "^7.0.10",
+        "typescript": "^5.9.3"
+    }
+}

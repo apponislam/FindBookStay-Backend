@@ -1,6 +1,16 @@
-import { Types } from "mongoose";
-
 export type UserRole = "ADMIN" | "USER";
+
+export interface Address {
+    street?: string;
+    city?: string;
+    state?: string;
+    zipCode?: string;
+    country?: string;
+    location?: {
+        type: "Point";
+        coordinates: [number, number]; // [longitude, latitude] for MongoDB 2dsphere
+    };
+}
 
 export interface User {
     name: string;
@@ -10,19 +20,8 @@ export interface User {
     phone?: string;
     profileImage?: string;
     language?: string;
-    address?: {
-        street?: string;
-        city?: string;
-        state?: string;
-        zipCode?: string;
-        country?: string;
-        latitude?: number;
-        longitude?: number;
-        location?: {
-            type: "Point";
-            coordinates: [number, number]; // [longitude, latitude] for MongoDB GeoJSON
-        };
-    };
+    presentAddress?: Address;
+    permanentAddress?: Address;
     isActive: boolean;
     isEmailVerified: boolean;
     isDeleted: boolean;

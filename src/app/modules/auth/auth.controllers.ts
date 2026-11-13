@@ -186,7 +186,8 @@ const updateProfile = catchAsync(async (req: Request, res: Response) => {
         ...(data.phone !== undefined && { phone: data.phone }),
         ...(data.profileImage !== undefined && { profileImage: data.profileImage }),
         ...(data.language !== undefined && { language: data.language }),
-        ...(data.address !== undefined && { address: data.address }),
+        ...(data.presentAddress !== undefined && { presentAddress: data.presentAddress }),
+        ...(data.permanentAddress !== undefined && { permanentAddress: data.permanentAddress }),
         ...(data.availabilityLocation !== undefined && { availabilityLocation: data.availabilityLocation }),
         ...(data.preferences !== undefined && { preferences: data.preferences }),
     };

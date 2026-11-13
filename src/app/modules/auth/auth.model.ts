@@ -1,6 +1,24 @@
 import mongoose, { Schema } from "mongoose";
 import { User } from "./auth.interface";
 
+const addressSchemaDefinition = {
+    street: String,
+    city: String,
+    state: String,
+    zipCode: String,
+    country: String,
+    location: {
+        type: {
+            type: String,
+            enum: ["Point"],
+            default: "Point",
+        },
+        coordinates: {
+            type: [Number], // [longitude, latitude]
+        },
+    },
+};
+
 const userSchemaDefinition: any = {
     name: {
         type: String,
@@ -40,25 +58,8 @@ const userSchemaDefinition: any = {
         type: String,
     },
 
-    address: {
-        street: String,
-        city: String,
-        state: String,
-        zipCode: String,
-        country: String,
-        latitude: Number,
-        longitude: Number,
-        location: {
-            type: {
-                type: String,
-                enum: ["Point"],
-                default: "Point",
-            },
-            coordinates: {
-                type: [Number], // [longitude, latitude]
-            },
-        },
-    },
+    presentAddress: addressSchemaDefinition,
+    permanentAddress: addressSchemaDefinition,
 
     isActive: {
         type: Boolean,
@@ -122,7 +123,8 @@ UserSchema.index({ name: 1, isDeleted: 1 });
 UserSchema.index({ role: 1, isDeleted: 1 });
 UserSchema.index({ isActive: 1, isDeleted: 1 });
 UserSchema.index({ isEmailVerified: 1, isDeleted: 1 });
-UserSchema.index({ "address.location": "2dsphere" });
+UserSchema.index({ "presentAddress.location": "2dsphere" });
+UserSchema.index({ "permanentAddress.location": "2dsphere" });
 
 // Token & OTP lookup indexes (important for auth flows)
 UserSchema.index({ resetPasswordToken: 1, isDeleted: 1 });

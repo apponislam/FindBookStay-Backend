@@ -5,33 +5,45 @@ import config from "../../config";
 import { UserModel } from "./auth.model";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
-import { sendOtpEmail, sendVerificationEmail, sendWelcomeEmail, sendEmailUpdateVerification, sendAdminPasswordResetEmail } from "../../../utils/emailTemplates";
+import {
+    sendOtpEmail,
+    sendVerificationEmail,
+    sendWelcomeEmail,
+    sendEmailUpdateVerification,
+    sendAdminPasswordResetEmail,
+} from "../../../utils/emailTemplates";
+import { authRedis } from "./auth.redis";
 
 const registerUser = async (data: any) => {
     // Check existing user
-    const existing = await UserModel.findOne({ email: data.email });
+    const existing = await UserModel.findOne({ email: data.email.toLowerCase() });
     if (existing) throw new ApiError(httpStatus.BAD_REQUEST, "Email already registered. Please sign in.");
 
     // Hash password
     const hashedPassword = await bcrypt.hash(data.password, Number(config.bcrypt_salt_rounds));
 
-    // Generate verification token
-    const verificationToken = crypto.randomBytes(32).toString("hex");
-    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const verificationExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
-
-    // Create user
+    // Create user in MongoDB without temporary verification fields
     const userData = {
         ...data,
+        email: data.email.toLowerCase(),
         password: hashedPassword,
         isActive: true,
         isEmailVerified: false,
-        verificationToken,
-        verificationCode,
-        verificationExpiry,
     };
 
     const createdUser = await UserModel.create(userData);
+
+    // Generate secure verification token and 6-digit OTP code
+    const verificationToken = crypto.randomBytes(32).toString("hex");
+    const verificationCode = crypto.randomInt(100000, 999999).toString();
+
+    // Store temporary verification data in Redis
+    await authRedis.storeEmailVerification(
+        createdUser.email as string,
+        createdUser._id.toString(),
+        verificationToken,
+        verificationCode
+    );
 
     const verificationUrl = `${config.client_url}/verify-email?token=${verificationToken}&email=${createdUser.email}`;
     sendVerificationEmail(createdUser.email as string, createdUser.name as string, verificationUrl, verificationCode);
@@ -49,14 +61,14 @@ const registerUser = async (data: any) => {
     const refreshToken = jwtHelper.generateToken(jwtPayload, config.jwt_refresh_secret as string, config.jwt_refresh_expire as string);
 
     const userObject = createdUser.toObject();
-    const { password: pwd, verificationToken: vToken, verificationExpiry: vExpiry, verificationCode: vCode, ...userWithoutSensitive } = userObject;
+    const { password: pwd, ...userWithoutSensitive } = userObject;
 
     return { user: userWithoutSensitive, accessToken, refreshToken };
 };
 
 const loginUser = async (data: { email: string; password: string }) => {
     // Find user
-    const user = await UserModel.findOne({ email: data.email, isDeleted: false });
+    const user = await UserModel.findOne({ email: data.email.toLowerCase(), isDeleted: false });
     if (!user) throw new ApiError(httpStatus.UNAUTHORIZED, "Incorrect email or password");
 
     // Check password
@@ -88,55 +100,44 @@ const loginUser = async (data: { email: string; password: string }) => {
 };
 
 const verifyEmail = async (email: string, token?: string, otp?: string) => {
-    const user = await UserModel.findOne({
-        email,
-        isDeleted: false,
-        verificationExpiry: { $gt: new Date() },
-    });
+    // Verify token or OTP via Redis with attempt tracking
+    const { userId } = await authRedis.verifyEmailInRedis(email, token, otp);
 
+    const user = await UserModel.findOne({ _id: userId, isDeleted: false });
     if (!user) {
-        throw new ApiError(httpStatus.NOT_FOUND, "User not registered");
+        throw new ApiError(httpStatus.NOT_FOUND, "User not found");
     }
 
-    if (token) {
-        if (user.verificationToken !== token) {
-            throw new ApiError(httpStatus.BAD_REQUEST, "Verification token is invalid or expired");
-        }
-    } else if (otp) {
-        if (user.verificationCode !== otp) {
-            throw new ApiError(httpStatus.BAD_REQUEST, "Verification code (OTP) is invalid or expired");
-        }
-    } else {
-        throw new ApiError(httpStatus.BAD_REQUEST, "Token or OTP is required");
-    }
-
-    // Mark email verified
+    // Update user status in MongoDB
     user.isEmailVerified = true;
-    user.verificationToken = undefined;
-    user.verificationCode = undefined;
-    user.verificationExpiry = undefined;
     await user.save();
 
     return { message: "Email verified successfully" };
 };
 
 const resendVerificationEmail = async (email: string) => {
-    const user = await UserModel.findOne({ email, isDeleted: false });
-    if (!user) throw new ApiError(httpStatus.NOT_FOUND, "User not registered");
+    const user = await UserModel.findOne({ email: email.toLowerCase(), isDeleted: false });
+    if (!user) {
+        // Do not reveal whether user exists to prevent account enumeration
+        return { message: "Verification email sent" };
+    }
 
     if (user.isEmailVerified) {
         throw new ApiError(httpStatus.BAD_REQUEST, "Email already verified");
     }
 
-    // Generate new verification token
-    const verificationToken = crypto.randomBytes(32).toString("hex");
-    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const verificationExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    // Enforce 60-second cooldown
+    const inCooldown = await authRedis.checkEmailVerifyCooldown(user.email);
+    if (inCooldown) {
+        throw new ApiError(httpStatus.TOO_MANY_REQUESTS, "Please wait 60 seconds before requesting another verification email.");
+    }
 
-    user.verificationToken = verificationToken;
-    user.verificationCode = verificationCode;
-    user.verificationExpiry = verificationExpiry;
-    await user.save();
+    // Generate new secure verification token and code
+    const verificationToken = crypto.randomBytes(32).toString("hex");
+    const verificationCode = crypto.randomInt(100000, 999999).toString();
+
+    // Store in Redis
+    await authRedis.storeEmailVerification(user.email, user._id.toString(), verificationToken, verificationCode);
 
     // Send verification email
     const verificationUrl = `${config.client_url}/verify-email?token=${verificationToken}&email=${user.email}`;
@@ -180,92 +181,87 @@ const refreshAccessToken = async (refreshToken: string) => {
 };
 
 const requestPasswordReset = async (email: string) => {
-    const user = await UserModel.findOne({ email, isDeleted: false });
-    if (!user) throw new ApiError(httpStatus.NOT_FOUND, "User not registered");
+    const normalizedEmail = email.toLowerCase().trim();
 
-    // Generate OTP
-    const otp = crypto.randomInt(100000, 999999).toString();
-    const otpExpiry = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+    // Check resend cooldown
+    const inCooldown = await authRedis.checkPwdResetCooldown(normalizedEmail);
+    if (inCooldown) {
+        throw new ApiError(httpStatus.TOO_MANY_REQUESTS, "Please wait 60 seconds before requesting another password reset code.");
+    }
 
-    user.resetPasswordOtp = otp;
-    user.resetPasswordOtpExpiry = otpExpiry;
-    await user.save();
+    const user = await UserModel.findOne({ email: normalizedEmail, isDeleted: false });
 
-    // Send OTP email
-    sendOtpEmail(email, otp, user.name as string);
+    // If user exists, generate OTP and store in Redis
+    if (user) {
+        const otp = crypto.randomInt(100000, 999999).toString();
+        await authRedis.storePwdResetOtp(normalizedEmail, user._id.toString(), otp);
+        sendOtpEmail(user.email, otp, user.name as string);
+    }
 
-    return { message: "OTP sent" };
+    // Always return success response to prevent email enumeration
+    return { message: "If an account with that email exists, an OTP has been sent." };
 };
 
 const verifyOtp = async (email: string, otp: string) => {
-    const user = await UserModel.findOne({ email, isDeleted: false });
-    if (!user) throw new ApiError(httpStatus.NOT_FOUND, "User not registered");
+    const normalizedEmail = email.toLowerCase().trim();
 
-    if (!user.resetPasswordOtp || !user.resetPasswordOtpExpiry) {
-        throw new ApiError(httpStatus.BAD_REQUEST, "No OTP request found");
-    }
+    // Verify OTP using Redis (checks attempts, hash, and deletes OTP upon success)
+    const { userId } = await authRedis.verifyPwdResetOtp(normalizedEmail, otp);
 
-    if (user.resetPasswordOtpExpiry < new Date()) {
-        throw new ApiError(httpStatus.BAD_REQUEST, "OTP expired");
-    }
-
-    if (user.resetPasswordOtp !== otp) {
-        throw new ApiError(httpStatus.BAD_REQUEST, "Invalid OTP");
-    }
-
-    // Generate reset token
+    // Generate cryptographically secure reset token (64 hex characters)
     const resetToken = crypto.randomBytes(32).toString("hex");
-    user.resetPasswordToken = resetToken;
-    user.resetPasswordTokenExpiry = new Date(Date.now() + 10 * 60 * 1000);
 
-    // Clear OTP
-    user.resetPasswordOtp = undefined;
-    user.resetPasswordOtpExpiry = undefined;
-
-    await user.save();
+    // Store hashed reset token in Redis with 10-minute TTL
+    await authRedis.storePwdResetToken(userId, normalizedEmail, resetToken);
 
     return { token: resetToken };
 };
 
 const resendOtp = async (email: string) => {
-    const user = await UserModel.findOne({ email, isDeleted: false });
-    if (!user) throw new ApiError(httpStatus.NOT_FOUND, "User not registered");
+    const normalizedEmail = email.toLowerCase().trim();
 
-    // Generate new OTP
-    const otp = crypto.randomInt(100000, 999999).toString();
-    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
+    const inCooldown = await authRedis.checkPwdResetCooldown(normalizedEmail);
+    if (inCooldown) {
+        throw new ApiError(httpStatus.TOO_MANY_REQUESTS, "Please wait 60 seconds before requesting another OTP.");
+    }
 
-    user.resetPasswordOtp = otp;
-    user.resetPasswordOtpExpiry = otpExpiry;
-    await user.save();
-
-    // Send email
-    sendOtpEmail(email, otp, user.name as string);
+    const user = await UserModel.findOne({ email: normalizedEmail, isDeleted: false });
+    if (user) {
+        const otp = crypto.randomInt(100000, 999999).toString();
+        await authRedis.storePwdResetOtp(normalizedEmail, user._id.toString(), otp);
+        sendOtpEmail(user.email, otp, user.name as string);
+    }
 
     return { message: "OTP resent" };
 };
 
 const resetPassword = async (token: string, newPassword: string) => {
-    const user = await UserModel.findOne({
-        resetPasswordToken: token,
-        resetPasswordTokenExpiry: { $gt: new Date() },
-        isDeleted: false,
-    });
+    if (!token) {
+        throw new ApiError(httpStatus.BAD_REQUEST, "The password reset token is required.");
+    }
 
-    if (!user) throw new ApiError(httpStatus.BAD_REQUEST, "The password reset link is invalid or has expired. Please try again.");
+    // Atomically validate and consume the reset token from Redis (prevents token reuse)
+    const { userId } = await authRedis.consumePwdResetToken(token);
 
-    // Hash new password
+    const user = await UserModel.findOne({ _id: userId, isDeleted: false });
+    if (!user) {
+        throw new ApiError(httpStatus.NOT_FOUND, "User account not found.");
+    }
+
+    // Hash new password and update in MongoDB
     const hashedPassword = await bcrypt.hash(newPassword, Number(config.bcrypt_salt_rounds));
-
     user.password = hashedPassword;
-    user.resetPasswordToken = undefined;
-    user.resetPasswordTokenExpiry = undefined;
-
     await user.save();
+
+    return { message: "Password reset successful" };
 };
 
 const updateProfile = async (userId: string, data: any) => {
-    const user = await UserModel.findOneAndUpdate({ _id: userId, isDeleted: false }, { $set: data }, { returnDocument: "after", runValidators: true }).select("-password");
+    const user = await UserModel.findOneAndUpdate(
+        { _id: userId, isDeleted: false },
+        { $set: data },
+        { returnDocument: "after", runValidators: true }
+    ).select("-password");
 
     if (!user) throw new ApiError(httpStatus.NOT_FOUND, "User not registered");
 
@@ -282,75 +278,107 @@ const changePassword = async (userId: string, currentPassword: string, newPasswo
     const hashedPassword = await bcrypt.hash(newPassword, Number(config.bcrypt_salt_rounds));
     user.password = hashedPassword;
     await user.save();
+
+    return { message: "Password changed successfully" };
 };
 
 const updateEmail = async (userId: string, newEmail: string, password: string) => {
+    const normalizedNewEmail = newEmail.toLowerCase().trim();
+
     const user = await UserModel.findOne({ _id: userId, isDeleted: false });
     if (!user) throw new ApiError(httpStatus.NOT_FOUND, "User not registered");
 
     const isPasswordValid = await bcrypt.compare(password, user.password as string);
     if (!isPasswordValid) throw new ApiError(httpStatus.BAD_REQUEST, "Incorrect password");
 
-    const existingUser = await UserModel.findOne({ email: newEmail, isDeleted: false });
+    // Check if new email already belongs to a registered account
+    const existingUser = await UserModel.findOne({ email: normalizedNewEmail, isDeleted: false });
     if (existingUser) throw new ApiError(httpStatus.BAD_REQUEST, "Email is already registered");
 
-    // Generate verification token for new email
+    // Check if new email is currently pending verification by another user in Redis
+    const isClaimed = await authRedis.checkPendingEmailClaim(normalizedNewEmail, userId);
+    if (isClaimed) {
+        throw new ApiError(httpStatus.CONFLICT, "This email is currently undergoing verification by another user.");
+    }
+
+    // Check resend cooldown
+    const inCooldown = await authRedis.checkEmailUpdateCooldown(userId);
+    if (inCooldown) {
+        throw new ApiError(httpStatus.TOO_MANY_REQUESTS, "Please wait 60 seconds before requesting another email update.");
+    }
+
+    // Generate secure verification token
     const verificationToken = crypto.randomBytes(32).toString("hex");
 
-    user.pendingEmail = newEmail;
-    user.emailVerificationToken = verificationToken;
-    user.emailVerificationExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    // Store in Redis with TTL
+    await authRedis.storeEmailUpdate(userId, normalizedNewEmail, verificationToken);
 
-    await user.save();
+    // Send verification email to the new address
+    const verificationUrl = `${config.client_url}/verify-new-email?token=${verificationToken}&email=${normalizedNewEmail}`;
+    sendEmailUpdateVerification(normalizedNewEmail, user.name as string, verificationUrl);
 
-    // Send verification email
-    const verificationUrl = `${config.client_url}/verify-new-email?token=${verificationToken}&email=${newEmail}`;
-    sendEmailUpdateVerification(newEmail, user.name as string, verificationUrl);
+    return { message: "Email update requested. Please verify new email." };
 };
 
 const resendEmailUpdate = async (userId: string, password: string) => {
     const user = await UserModel.findOne({ _id: userId, isDeleted: false });
     if (!user) throw new ApiError(httpStatus.NOT_FOUND, "User not registered");
 
-    if (!user.pendingEmail) {
-        throw new ApiError(httpStatus.BAD_REQUEST, "No pending email update");
-    }
-
     const isPasswordValid = await bcrypt.compare(password, user.password as string);
     if (!isPasswordValid) throw new ApiError(httpStatus.BAD_REQUEST, "Password is incorrect");
 
-    // Generate new verification token
-    const verificationToken = crypto.randomBytes(32).toString("hex");
-    const verificationExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    // Check existing pending email update in Redis
+    const pendingData = await authRedis.getPendingEmailUpdate(userId);
+    if (!pendingData) {
+        throw new ApiError(httpStatus.BAD_REQUEST, "No pending email update request found.");
+    }
 
-    user.emailVerificationToken = verificationToken;
-    user.emailVerificationExpiry = verificationExpiry;
-    await user.save();
+    // Check cooldown
+    const inCooldown = await authRedis.checkEmailUpdateCooldown(userId);
+    if (inCooldown) {
+        throw new ApiError(httpStatus.TOO_MANY_REQUESTS, "Please wait 60 seconds before resending verification.");
+    }
+
+    // Generate new verification token and refresh Redis entry
+    const verificationToken = crypto.randomBytes(32).toString("hex");
+    await authRedis.storeEmailUpdate(userId, pendingData.pendingEmail, verificationToken);
 
     // Send verification email
-    const verificationUrl = `${config.client_url}/verify-new-email?token=${verificationToken}&email=${user.pendingEmail}`;
-    sendEmailUpdateVerification(user.pendingEmail as string, user.name as string, verificationUrl);
+    const verificationUrl = `${config.client_url}/verify-new-email?token=${verificationToken}&email=${pendingData.pendingEmail}`;
+    sendEmailUpdateVerification(pendingData.pendingEmail, user.name as string, verificationUrl);
 
     return { message: "Verification email resent" };
 };
 
-const verifyNewEmail = async (token: string, email: string) => {
-    const user = await UserModel.findOne({
-        pendingEmail: email,
-        emailVerificationToken: token,
-        emailVerificationExpiry: { $gt: new Date() },
+const verifyNewEmail = async (token: string, email?: string) => {
+    if (!token) {
+        throw new ApiError(httpStatus.BAD_REQUEST, "Verification token is required.");
+    }
+
+    // Atomically validate and consume token from Redis
+    const { userId, pendingEmail } = await authRedis.consumeNewEmailToken(token, email);
+
+    // Concurrency safety: double-check that email wasn't claimed between request and verification
+    const emailConflict = await UserModel.findOne({
+        email: pendingEmail,
+        _id: { $ne: userId },
         isDeleted: false,
     });
 
-    if (!user) throw new ApiError(httpStatus.BAD_REQUEST, "The email verification link is invalid or has expired. Please try again.");
+    if (emailConflict) {
+        throw new ApiError(httpStatus.CONFLICT, "This email is already registered to another account.");
+    }
 
-    // Update email
-    user.email = email;
-    user.pendingEmail = undefined;
-    user.emailVerificationToken = undefined;
-    user.emailVerificationExpiry = undefined;
+    // Update user's email in MongoDB
+    const updatedUser = await UserModel.findByIdAndUpdate(
+        userId,
+        { $set: { email: pendingEmail } },
+        { new: true }
+    );
 
-    await user.save();
+    if (!updatedUser) {
+        throw new ApiError(httpStatus.NOT_FOUND, "User not found.");
+    }
 
     return { message: "New email verified successfully" };
 };

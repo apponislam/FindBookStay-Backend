@@ -2,11 +2,12 @@ import Redis, { RedisOptions } from "ioredis";
 import config from "../app/config";
 
 const redisOptions: RedisOptions = {
-    lazyConnect: true,
+    lazyConnect: false,
     maxRetriesPerRequest: 3,
+    enableReadyCheck: true,
     retryStrategy(times) {
-        if (times > 3) {
-            return null; // Stop retrying after 3 attempts
+        if (times > 5) {
+            return null; // Stop retrying after 5 attempts
         }
         return Math.min(times * 200, 2000);
     },

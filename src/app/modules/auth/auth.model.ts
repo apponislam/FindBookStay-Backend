@@ -79,19 +79,6 @@ const userSchemaDefinition: any = {
     lastLogin: {
         type: Date,
     },
-
-    resetPasswordOtp: String,
-    resetPasswordOtpExpiry: Date,
-    resetPasswordToken: String,
-    resetPasswordTokenExpiry: Date,
-
-    verificationToken: String,
-    verificationCode: String,
-    verificationExpiry: Date,
-
-    pendingEmail: String,
-    emailVerificationToken: String,
-    emailVerificationExpiry: Date,
 };
 
 const UserSchema = new Schema<User>(userSchemaDefinition, {
@@ -101,16 +88,6 @@ const UserSchema = new Schema<User>(userSchemaDefinition, {
     toJSON: {
         transform(doc, ret: Partial<User>) {
             delete ret.password;
-            delete ret.resetPasswordOtp;
-            delete ret.resetPasswordOtpExpiry;
-            delete ret.resetPasswordToken;
-            delete ret.resetPasswordTokenExpiry;
-            delete ret.verificationToken;
-            delete ret.verificationCode;
-            delete ret.verificationExpiry;
-            delete ret.emailVerificationToken;
-            delete ret.emailVerificationExpiry;
-            delete ret.pendingEmail;
             return ret;
         },
     },
@@ -125,13 +102,6 @@ UserSchema.index({ isActive: 1, isDeleted: 1 });
 UserSchema.index({ isEmailVerified: 1, isDeleted: 1 });
 UserSchema.index({ "presentAddress.location": "2dsphere" });
 UserSchema.index({ "permanentAddress.location": "2dsphere" });
-
-// Token & OTP lookup indexes (important for auth flows)
-UserSchema.index({ resetPasswordToken: 1, isDeleted: 1 });
-UserSchema.index({ resetPasswordOtp: 1, isDeleted: 1 });
-UserSchema.index({ verificationToken: 1, isDeleted: 1 });
-UserSchema.index({ verificationCode: 1, isDeleted: 1 });
-UserSchema.index({ emailVerificationToken: 1, isDeleted: 1 });
 
 // Activity tracking optimization
 UserSchema.index({ lastLogin: -1 });

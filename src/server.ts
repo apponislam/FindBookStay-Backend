@@ -6,6 +6,7 @@ import mongoose from "mongoose";
 import http from "http";
 import config from "./app/config";
 import { seedAdmin } from "./app/modules/auth/auth.seed";
+import { initSocket } from "./utils/socket";
 
 let server: Server;
 
@@ -15,6 +16,7 @@ async function main() {
     try {
         await mongoose.connect(config.mongodb_url as string);
         server = http.createServer(app);
+        initSocket(server);
 
         seedAdmin();
 

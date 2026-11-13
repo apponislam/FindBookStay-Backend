@@ -45,4 +45,11 @@ export default {
         phone: process.env.INITIAL_ADMIN_PHONE,
     },
     maps_api_key: process.env.MAPS_API_KEY,
+
+    redis: {
+        url: process.env.REDIS_URL,
+        host: process.env.REDIS_HOST || "127.0.0.1",
+        port: Number(process.env.REDIS_PORT) || 6379,
+        password: process.env.REDIS_PASSWORD || undefined,
+    },
 };

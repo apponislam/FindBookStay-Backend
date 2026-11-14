@@ -5,6 +5,7 @@ import sendResponse from "../../../utils/sendResponse";
 import config from "../../config";
 import { Request, Response } from "express";
 import { authServices } from "./auth.services";
+import { activityLogServices } from "../activityLog/activityLog.services";
 
 const register = catchAsync(async (req: Request, res: Response) => {
 
@@ -18,6 +19,9 @@ const register = catchAsync(async (req: Request, res: Response) => {
         role: data.role,
         phone: data.phone,
         profileImage: data.profileImage,
+        presentAddress: data.presentAddress,
+        permanentAddress: data.permanentAddress,
+        referredBy: data.referredBy,
     };
 
     // Basic validation
@@ -33,6 +37,17 @@ const register = catchAsync(async (req: Request, res: Response) => {
         secure: config.node_env === "production",
         sameSite: "strict",
         maxAge: 30 * 24 * 60 * 60 * 1000,
+    });
+
+    activityLogServices.createActivityLog({
+        user: result.user._id,
+        role: result.user.role,
+        action: "AUTH_REGISTER",
+        module: "AUTH",
+        description: `User ${result.user.name} registered account`,
+        status: "SUCCESS",
+        ipAddress: req.ip || (req.headers["x-forwarded-for"] as string),
+        userAgent: req.headers["user-agent"],
     });
 
     sendResponse(res, {
@@ -54,6 +69,17 @@ const login = catchAsync(async (req: Request, res: Response) => {
         secure: config.node_env === "production",
         sameSite: "strict",
         maxAge: 30 * 24 * 60 * 60 * 1000,
+    });
+
+    activityLogServices.createActivityLog({
+        user: result.user._id,
+        role: result.user.role,
+        action: "AUTH_LOGIN",
+        module: "AUTH",
+        description: `User ${result.user.name} logged in successfully`,
+        status: "SUCCESS",
+        ipAddress: req.ip || (req.headers["x-forwarded-for"] as string),
+        userAgent: req.headers["user-agent"],
     });
 
     sendResponse(res, {
@@ -111,6 +137,19 @@ const getMe = catchAsync(async (req: Request, res: Response) => {
 
 const logout = catchAsync(async (req: Request, res: Response) => {
     res.clearCookie("refreshToken");
+
+    if (req.user) {
+        activityLogServices.createActivityLog({
+            user: req.user._id,
+            role: req.user.role,
+            action: "AUTH_LOGOUT",
+            module: "AUTH",
+            description: "User logged out successfully",
+            status: "SUCCESS",
+            ipAddress: req.ip || (req.headers["x-forwarded-for"] as string),
+            userAgent: req.headers["user-agent"],
+        });
+    }
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -188,11 +227,25 @@ const updateProfile = catchAsync(async (req: Request, res: Response) => {
         ...(data.language !== undefined && { language: data.language }),
         ...(data.presentAddress !== undefined && { presentAddress: data.presentAddress }),
         ...(data.permanentAddress !== undefined && { permanentAddress: data.permanentAddress }),
-        ...(data.availabilityLocation !== undefined && { availabilityLocation: data.availabilityLocation }),
-        ...(data.preferences !== undefined && { preferences: data.preferences }),
+        ...(data.hasHome !== undefined && { hasHome: data.hasHome }),
+        ...(data.hasStay !== undefined && { hasStay: data.hasStay }),
+        ...(data.hasTurf !== undefined && { hasTurf: data.hasTurf }),
+        ...(data.hasProperty !== undefined && { hasProperty: data.hasProperty }),
     };
 
     const updatedUser = await authServices.updateProfile(req.user._id, updateData);
+
+    activityLogServices.createActivityLog({
+        user: req.user._id,
+        role: req.user.role,
+        action: "PROFILE_UPDATE",
+        module: "USER",
+        description: "User profile information updated",
+        status: "SUCCESS",
+        ipAddress: req.ip || (req.headers["x-forwarded-for"] as string),
+        userAgent: req.headers["user-agent"],
+        metadata: { updatedFields: Object.keys(updateData) },
+    });
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -204,6 +257,17 @@ const updateProfile = catchAsync(async (req: Request, res: Response) => {
 
 const changePassword = catchAsync(async (req: Request, res: Response) => {
     await authServices.changePassword(req.user._id, req.body.currentPassword, req.body.newPassword);
+
+    activityLogServices.createActivityLog({
+        user: req.user._id,
+        role: req.user.role,
+        action: "PASSWORD_CHANGE",
+        module: "AUTH",
+        description: "User password changed successfully",
+        status: "SUCCESS",
+        ipAddress: req.ip || (req.headers["x-forwarded-for"] as string),
+        userAgent: req.headers["user-agent"],
+    });
 
     sendResponse(res, {
         statusCode: httpStatus.OK,

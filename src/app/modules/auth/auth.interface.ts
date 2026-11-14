@@ -26,6 +26,10 @@ export interface User {
     permanentAddress?: Address;
     referralCode?: string;
     referredBy?: Types.ObjectId | null;
+    hasHome: boolean;
+    hasStay: boolean;
+    hasTurf: boolean;
+    hasProperty: boolean;
     isActive: boolean;
     isEmailVerified: boolean;
     isDeleted: boolean;

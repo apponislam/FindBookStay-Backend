@@ -64,7 +64,6 @@ const userSchemaDefinition: any = {
 
     referralCode: {
         type: String,
-        unique: true,
         sparse: true,
         trim: true,
         uppercase: true,
@@ -74,6 +73,26 @@ const userSchemaDefinition: any = {
         type: Schema.Types.ObjectId,
         ref: "User",
         default: null,
+    },
+
+    hasHome: {
+        type: Boolean,
+        default: false,
+    },
+
+    hasStay: {
+        type: Boolean,
+        default: false,
+    },
+
+    hasTurf: {
+        type: Boolean,
+        default: false,
+    },
+
+    hasProperty: {
+        type: Boolean,
+        default: false,
     },
 
     isActive: {

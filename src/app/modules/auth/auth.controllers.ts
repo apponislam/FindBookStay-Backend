@@ -311,22 +311,6 @@ const verifyNewEmail = catchAsync(async (req: Request, res: Response) => {
     });
 });
 
-const setUserPassword = catchAsync(async (req: Request, res: Response) => {
-    const userId = req.params.userId as string;
-    const { password } = req.body;
-    await authServices.setUserPassword(userId, password);
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Password set successfully",
-        data: null,
-    });
-});
-
-
-
-
 const deleteAccount = catchAsync(async (req: Request, res: Response) => {
     const userId = req.user._id;
     await authServices.deleteUser(userId.toString());
@@ -340,21 +324,8 @@ const deleteAccount = catchAsync(async (req: Request, res: Response) => {
     });
 });
 
-const deleteUserByAdmin = catchAsync(async (req: Request, res: Response) => {
-    const { userId } = req.params;
-    await authServices.deleteUser(userId as string);
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "User deleted successfully",
-        data: null,
-    });
-});
-
 export const authControllers = {
     register,
-
     login,
     verifyEmail,
     resendVerificationEmail,
@@ -366,12 +337,9 @@ export const authControllers = {
     resendOtp,
     resetPassword,
     updateProfile,
-
     changePassword,
     updateEmail,
     resendEmailUpdate,
     verifyNewEmail,
-    setUserPassword,
     deleteAccount,
-    deleteUserByAdmin,
 };

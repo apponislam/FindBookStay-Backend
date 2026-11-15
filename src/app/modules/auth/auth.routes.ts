@@ -1,7 +1,6 @@
 import { Router } from "express";
 import { authControllers } from "./auth.controllers";
 import auth from "../../middlewares/auth";
-import authorize from "../../middlewares/authorized";
 const router = Router();
 
 // Public routes
@@ -24,9 +23,5 @@ router.post("/update-email", auth, authControllers.updateEmail);
 router.get("/verify-new-email", authControllers.verifyNewEmail);
 router.post("/resend-email-update", auth, authControllers.resendEmailUpdate);
 router.delete("/me", auth, authControllers.deleteAccount);
-
-// Admin only routes
-router.post("/set-password/:userId", auth, authorize(["ADMIN"]), authControllers.setUserPassword);
-router.delete("/:userId", auth, authorize(["ADMIN"]), authControllers.deleteUserByAdmin);
 
 export const authRoutes = router;

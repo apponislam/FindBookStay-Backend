@@ -10,7 +10,6 @@ import {
     sendVerificationEmail,
     sendWelcomeEmail,
     sendEmailUpdateVerification,
-    sendAdminPasswordResetEmail,
 } from "../../../utils/emailTemplates";
 import { authRedis } from "./auth.redis";
 
@@ -383,18 +382,6 @@ const verifyNewEmail = async (token: string, email?: string) => {
     return { message: "New email verified successfully" };
 };
 
-const setUserPassword = async (userId: string, newPassword: string) => {
-    const user = await UserModel.findOne({ _id: userId, isDeleted: false });
-    if (!user) throw new ApiError(httpStatus.NOT_FOUND, "User not registered");
-
-    const hashedPassword = await bcrypt.hash(newPassword, Number(config.bcrypt_salt_rounds));
-    user.password = hashedPassword;
-    await user.save();
-
-    // Send email with updated credentials to user
-    sendAdminPasswordResetEmail(user.email as string, user.name as string, newPassword);
-};
-
 const deleteUser = async (userId: string) => {
     const user = await UserModel.findByIdAndUpdate(userId, { $set: { isDeleted: true } }, { returnDocument: "after" });
     if (!user) throw new ApiError(httpStatus.NOT_FOUND, "User not found");
@@ -418,6 +405,5 @@ export const authServices = {
     updateEmail,
     resendEmailUpdate,
     verifyNewEmail,
-    setUserPassword,
     deleteUser,
 };

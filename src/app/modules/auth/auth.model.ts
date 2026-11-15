@@ -23,26 +23,29 @@ const addressSchemaDefinition = {
 const userSchemaDefinition: any = {
     name: {
         type: String,
-        required: [true, "Name is required"],
+        required: [true, "Please provide your full name."],
         trim: true,
     },
 
     email: {
         type: String,
-        required: [true, "Email is required"],
+        required: [true, "Please provide your email address."],
         lowercase: true,
         trim: true,
-        match: [/.+\@.+\..+/, "Please enter a valid email address"],
+        match: [/.+\@.+\..+/, "Please enter a valid email address (e.g., name@example.com)."],
     },
 
     password: {
         type: String,
-        required: [true, "Password is required"],
+        required: [true, "Please enter a secure password."],
     },
 
     role: {
         type: String,
-        enum: ["ADMIN", "USER"],
+        enum: {
+            values: ["ADMIN", "USER"],
+            message: "Invalid account role '{VALUE}'. Role must be USER or ADMIN.",
+        },
         default: "USER",
         required: true,
     },

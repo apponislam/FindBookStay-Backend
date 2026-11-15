@@ -7,15 +7,15 @@ const AddressSchema = new Schema<IAddress>(
             type: String,
             enum: {
                 values: ADDRESS_TYPES,
-                message: "{VALUE} is not a valid international address type",
+                message: "Invalid address type '{VALUE}'. Please select a valid type: COUNTRY, STATE, CITY, AREA, or ZONE.",
             },
-            required: [true, "Address type is required"],
+            required: [true, "Address type is required. Please select COUNTRY, STATE, CITY, AREA, or ZONE."],
             uppercase: true,
             trim: true,
         },
         address: {
             type: String,
-            required: [true, "Address is required"],
+            required: [true, "Address name is required. Please provide a location name (e.g., 'Bangladesh', 'Dhaka', 'Gulshan')."],
             trim: true,
         },
         upperLevelAddress: {

@@ -16,7 +16,7 @@ import { authRedis } from "./auth.redis";
 const registerUser = async (data: any) => {
     // Check existing user
     const existing = await UserModel.findOne({ email: data.email.toLowerCase() });
-    if (existing) throw new ApiError(httpStatus.BAD_REQUEST, "Email already registered. Please sign in.");
+    if (existing) throw new ApiError(httpStatus.BAD_REQUEST, "An account with this email address is already registered. Please sign in or reset your password.");
 
     // Hash password
     const hashedPassword = await bcrypt.hash(data.password, Number(config.bcrypt_salt_rounds));
@@ -68,11 +68,11 @@ const registerUser = async (data: any) => {
 const loginUser = async (data: { email: string; password: string }) => {
     // Find user
     const user = await UserModel.findOne({ email: data.email.toLowerCase(), isDeleted: false });
-    if (!user) throw new ApiError(httpStatus.UNAUTHORIZED, "Incorrect email or password");
+    if (!user) throw new ApiError(httpStatus.UNAUTHORIZED, "Incorrect email or password. Please verify your credentials and try again.");
 
     // Check password
     const isPasswordValid = await bcrypt.compare(data.password, user.password as string);
-    if (!isPasswordValid) throw new ApiError(httpStatus.UNAUTHORIZED, "Incorrect email or password");
+    if (!isPasswordValid) throw new ApiError(httpStatus.UNAUTHORIZED, "Incorrect email or password. Please verify your credentials and try again.");
 
     // Check if active
     if (!user.isActive) {
@@ -104,25 +104,25 @@ const verifyEmail = async (email: string, token?: string, otp?: string) => {
 
     const user = await UserModel.findOne({ _id: userId, isDeleted: false });
     if (!user) {
-        throw new ApiError(httpStatus.NOT_FOUND, "User not found");
+        throw new ApiError(httpStatus.NOT_FOUND, "Account verification failed. The user account could not be found.");
     }
 
     // Update user status in MongoDB
     user.isEmailVerified = true;
     await user.save();
 
-    return { message: "Email verified successfully" };
+    return { message: "Your email has been verified successfully. Welcome to FindBookStay!" };
 };
 
 const resendVerificationEmail = async (email: string) => {
     const user = await UserModel.findOne({ email: email.toLowerCase(), isDeleted: false });
     if (!user) {
         // Do not reveal whether user exists to prevent account enumeration
-        return { message: "Verification email sent" };
+        return { message: "If an account with that email exists, a verification link has been sent." };
     }
 
     if (user.isEmailVerified) {
-        throw new ApiError(httpStatus.BAD_REQUEST, "Email already verified");
+        throw new ApiError(httpStatus.BAD_REQUEST, "This email address is already verified.");
     }
 
     // Enforce 60-second cooldown
@@ -142,23 +142,23 @@ const resendVerificationEmail = async (email: string) => {
     const verificationUrl = `${config.client_url}/verify-email?token=${verificationToken}&email=${user.email}`;
     sendVerificationEmail(user.email as string, user.name as string, verificationUrl, verificationCode);
 
-    return { message: "Verification email sent" };
+    return { message: "A new verification email has been sent successfully." };
 };
 
 const getUserById = async (userId: string) => {
     const user = await UserModel.findOne({ _id: userId, isDeleted: false }).select("-password");
-    if (!user) throw new ApiError(httpStatus.NOT_FOUND, "User not registered");
+    if (!user) throw new ApiError(httpStatus.NOT_FOUND, "User account not found or no longer active.");
     return user;
 };
 
 const refreshAccessToken = async (refreshToken: string) => {
-    if (!refreshToken) throw new ApiError(httpStatus.UNAUTHORIZED, "Refresh token required");
+    if (!refreshToken) throw new ApiError(httpStatus.UNAUTHORIZED, "Authentication session expired. Please sign in again.");
 
     try {
         const decoded = jwtHelper.verifyToken(refreshToken, config.jwt_refresh_secret as string);
 
         const user = await UserModel.findOne({ _id: decoded._id, isDeleted: false }).select("-password");
-        if (!user) throw new ApiError(httpStatus.UNAUTHORIZED, "User not registered");
+        if (!user) throw new ApiError(httpStatus.UNAUTHORIZED, "Account not found. Please sign in again.");
 
         if (!user.isActive) {
             throw new ApiError(httpStatus.FORBIDDEN, "Your account has been deactivated. Please contact support.");
@@ -175,7 +175,7 @@ const refreshAccessToken = async (refreshToken: string) => {
 
         return { user, accessToken };
     } catch (error) {
-        throw new ApiError(httpStatus.UNAUTHORIZED, "Invalid refresh token");
+        throw new ApiError(httpStatus.UNAUTHORIZED, "Your session has expired. Please sign in again to continue.");
     }
 };
 
@@ -198,7 +198,7 @@ const requestPasswordReset = async (email: string) => {
     }
 
     // Always return success response to prevent email enumeration
-    return { message: "If an account with that email exists, an OTP has been sent." };
+    return { message: "If an account is associated with this email, a 6-digit password reset code has been sent." };
 };
 
 const verifyOtp = async (email: string, otp: string) => {
@@ -221,7 +221,7 @@ const resendOtp = async (email: string) => {
 
     const inCooldown = await authRedis.checkPwdResetCooldown(normalizedEmail);
     if (inCooldown) {
-        throw new ApiError(httpStatus.TOO_MANY_REQUESTS, "Please wait 60 seconds before requesting another OTP.");
+        throw new ApiError(httpStatus.TOO_MANY_REQUESTS, "Please wait 60 seconds before requesting another password reset code.");
     }
 
     const user = await UserModel.findOne({ email: normalizedEmail, isDeleted: false });
@@ -231,12 +231,12 @@ const resendOtp = async (email: string) => {
         sendOtpEmail(user.email, otp, user.name as string);
     }
 
-    return { message: "OTP resent" };
+    return { message: "A new 6-digit password reset code has been sent to your email." };
 };
 
 const resetPassword = async (token: string, newPassword: string) => {
     if (!token) {
-        throw new ApiError(httpStatus.BAD_REQUEST, "The password reset token is required.");
+        throw new ApiError(httpStatus.BAD_REQUEST, "Password reset token is missing or invalid. Please request a new password reset.");
     }
 
     // Atomically validate and consume the reset token from Redis (prevents token reuse)
@@ -244,7 +244,7 @@ const resetPassword = async (token: string, newPassword: string) => {
 
     const user = await UserModel.findOne({ _id: userId, isDeleted: false });
     if (!user) {
-        throw new ApiError(httpStatus.NOT_FOUND, "User account not found.");
+        throw new ApiError(httpStatus.NOT_FOUND, "The account associated with this password reset could not be found.");
     }
 
     // Hash new password and update in MongoDB
@@ -252,7 +252,7 @@ const resetPassword = async (token: string, newPassword: string) => {
     user.password = hashedPassword;
     await user.save();
 
-    return { message: "Password reset successful" };
+    return { message: "Your password has been reset successfully. You can now log in with your new password." };
 };
 
 const updateProfile = async (userId: string, data: any) => {
@@ -262,42 +262,42 @@ const updateProfile = async (userId: string, data: any) => {
         { returnDocument: "after", runValidators: true }
     ).select("-password");
 
-    if (!user) throw new ApiError(httpStatus.NOT_FOUND, "User not registered");
+    if (!user) throw new ApiError(httpStatus.NOT_FOUND, "User account not found or no longer active.");
 
     return user;
 };
 
 const changePassword = async (userId: string, currentPassword: string, newPassword: string) => {
     const user = await UserModel.findOne({ _id: userId, isDeleted: false });
-    if (!user) throw new ApiError(httpStatus.NOT_FOUND, "User not registered");
+    if (!user) throw new ApiError(httpStatus.NOT_FOUND, "User account not found.");
 
     const isPasswordValid = await bcrypt.compare(currentPassword, user.password as string);
-    if (!isPasswordValid) throw new ApiError(httpStatus.BAD_REQUEST, "Incorrect current password");
+    if (!isPasswordValid) throw new ApiError(httpStatus.BAD_REQUEST, "The current password you entered is incorrect. Please try again.");
 
     const hashedPassword = await bcrypt.hash(newPassword, Number(config.bcrypt_salt_rounds));
     user.password = hashedPassword;
     await user.save();
 
-    return { message: "Password changed successfully" };
+    return { message: "Your password has been changed successfully." };
 };
 
 const updateEmail = async (userId: string, newEmail: string, password: string) => {
     const normalizedNewEmail = newEmail.toLowerCase().trim();
 
     const user = await UserModel.findOne({ _id: userId, isDeleted: false });
-    if (!user) throw new ApiError(httpStatus.NOT_FOUND, "User not registered");
+    if (!user) throw new ApiError(httpStatus.NOT_FOUND, "User account not found.");
 
     const isPasswordValid = await bcrypt.compare(password, user.password as string);
-    if (!isPasswordValid) throw new ApiError(httpStatus.BAD_REQUEST, "Incorrect password");
+    if (!isPasswordValid) throw new ApiError(httpStatus.BAD_REQUEST, "Incorrect password. Please enter your current password to confirm this email change.");
 
     // Check if new email already belongs to a registered account
     const existingUser = await UserModel.findOne({ email: normalizedNewEmail, isDeleted: false });
-    if (existingUser) throw new ApiError(httpStatus.BAD_REQUEST, "Email is already registered");
+    if (existingUser) throw new ApiError(httpStatus.BAD_REQUEST, "This email address is already registered to another account.");
 
     // Check if new email is currently pending verification by another user in Redis
     const isClaimed = await authRedis.checkPendingEmailClaim(normalizedNewEmail, userId);
     if (isClaimed) {
-        throw new ApiError(httpStatus.CONFLICT, "This email is currently undergoing verification by another user.");
+        throw new ApiError(httpStatus.CONFLICT, "This email address is currently undergoing verification by another user.");
     }
 
     // Check resend cooldown
@@ -316,20 +316,20 @@ const updateEmail = async (userId: string, newEmail: string, password: string) =
     const verificationUrl = `${config.client_url}/verify-new-email?token=${verificationToken}&email=${normalizedNewEmail}`;
     sendEmailUpdateVerification(normalizedNewEmail, user.name as string, verificationUrl);
 
-    return { message: "Email update requested. Please verify new email." };
+    return { message: "An email update verification link has been sent to your new address. Please check your inbox." };
 };
 
 const resendEmailUpdate = async (userId: string, password: string) => {
     const user = await UserModel.findOne({ _id: userId, isDeleted: false });
-    if (!user) throw new ApiError(httpStatus.NOT_FOUND, "User not registered");
+    if (!user) throw new ApiError(httpStatus.NOT_FOUND, "User account not found.");
 
     const isPasswordValid = await bcrypt.compare(password, user.password as string);
-    if (!isPasswordValid) throw new ApiError(httpStatus.BAD_REQUEST, "Password is incorrect");
+    if (!isPasswordValid) throw new ApiError(httpStatus.BAD_REQUEST, "Incorrect password. Please enter your password to resend the verification email.");
 
     // Check existing pending email update in Redis
     const pendingData = await authRedis.getPendingEmailUpdate(userId);
     if (!pendingData) {
-        throw new ApiError(httpStatus.BAD_REQUEST, "No pending email update request found.");
+        throw new ApiError(httpStatus.BAD_REQUEST, "No pending email update request found for this account.");
     }
 
     // Check cooldown
@@ -346,12 +346,12 @@ const resendEmailUpdate = async (userId: string, password: string) => {
     const verificationUrl = `${config.client_url}/verify-new-email?token=${verificationToken}&email=${pendingData.pendingEmail}`;
     sendEmailUpdateVerification(pendingData.pendingEmail, user.name as string, verificationUrl);
 
-    return { message: "Verification email resent" };
+    return { message: "A new verification email has been sent to your new email address." };
 };
 
 const verifyNewEmail = async (token: string, email?: string) => {
     if (!token) {
-        throw new ApiError(httpStatus.BAD_REQUEST, "Verification token is required.");
+        throw new ApiError(httpStatus.BAD_REQUEST, "Verification link token is required.");
     }
 
     // Atomically validate and consume token from Redis
@@ -365,7 +365,7 @@ const verifyNewEmail = async (token: string, email?: string) => {
     });
 
     if (emailConflict) {
-        throw new ApiError(httpStatus.CONFLICT, "This email is already registered to another account.");
+        throw new ApiError(httpStatus.CONFLICT, "This email address is already registered to another account.");
     }
 
     // Update user's email in MongoDB
@@ -376,17 +376,38 @@ const verifyNewEmail = async (token: string, email?: string) => {
     );
 
     if (!updatedUser) {
-        throw new ApiError(httpStatus.NOT_FOUND, "User not found.");
+        throw new ApiError(httpStatus.NOT_FOUND, "User account not found.");
     }
 
-    return { message: "New email verified successfully" };
+    return { message: "Your new email address has been verified and updated successfully." };
 };
 
 const deleteUser = async (userId: string) => {
     const user = await UserModel.findByIdAndUpdate(userId, { $set: { isDeleted: true } }, { returnDocument: "after" });
-    if (!user) throw new ApiError(httpStatus.NOT_FOUND, "User not found");
+    if (!user) throw new ApiError(httpStatus.NOT_FOUND, "User account not found or has already been deleted.");
 
     return user;
+};
+
+const validateReferralCode = async (code: string) => {
+    if (!code) {
+        throw new ApiError(httpStatus.BAD_REQUEST, "Please enter a referral code to validate.");
+    }
+    const user = await UserModel.findOne({
+        referralCode: code.toUpperCase().trim(),
+        isDeleted: false,
+    }).select("name referralCode");
+
+    if (!user) {
+        throw new ApiError(httpStatus.NOT_FOUND, "This referral code is invalid or does not exist. Please check and try again.");
+    }
+
+    return {
+        valid: true,
+        referralCode: user.referralCode,
+        referrerId: user._id,
+        referrerName: user.name,
+    };
 };
 
 export const authServices = {
@@ -406,4 +427,5 @@ export const authServices = {
     resendEmailUpdate,
     verifyNewEmail,
     deleteUser,
+    validateReferralCode,
 };

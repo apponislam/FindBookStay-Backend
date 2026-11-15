@@ -13,6 +13,7 @@ router.post("/forgot-password", authControllers.requestPasswordReset);
 router.post("/verify-otp", authControllers.verifyOtp);
 router.post("/resend-otp", authControllers.resendOtp);
 router.post("/reset-password", authControllers.resetPassword);
+router.get("/referral/:code", authControllers.validateReferralCode);
 
 // Protected routes (require auth)
 router.get("/me", auth, authControllers.getMe);

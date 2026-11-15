@@ -186,13 +186,13 @@ const getAllLogs = async (filters: IActivityLogFilter, pagination: IPaginationOp
 
 const getLogById = async (id: string) => {
     if (!Types.ObjectId.isValid(id)) {
-        throw new ApiError(httpStatus.BAD_REQUEST, "Invalid activity log ID");
+        throw new ApiError(httpStatus.BAD_REQUEST, "The requested activity log ID is invalid.");
     }
 
     const log = await ActivityLogModel.findById(id).populate("user", "name email role profileImage");
 
     if (!log) {
-        throw new ApiError(httpStatus.NOT_FOUND, "Activity log not found");
+        throw new ApiError(httpStatus.NOT_FOUND, "No activity log found matching this ID.");
     }
 
     return log;
@@ -200,13 +200,13 @@ const getLogById = async (id: string) => {
 
 const deleteLogById = async (id: string) => {
     if (!Types.ObjectId.isValid(id)) {
-        throw new ApiError(httpStatus.BAD_REQUEST, "Invalid activity log ID");
+        throw new ApiError(httpStatus.BAD_REQUEST, "The requested activity log ID is invalid.");
     }
 
     const log = await ActivityLogModel.findByIdAndDelete(id);
 
     if (!log) {
-        throw new ApiError(httpStatus.NOT_FOUND, "Activity log not found");
+        throw new ApiError(httpStatus.NOT_FOUND, "No activity log found matching this ID to delete.");
     }
 
     return log;

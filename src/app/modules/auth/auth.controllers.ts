@@ -44,7 +44,7 @@ const register = catchAsync(async (req: Request, res: Response) => {
         role: result.user.role,
         action: "AUTH_REGISTER",
         module: "AUTH",
-        description: `User ${result.user.name} registered account`,
+        description: `New user registered account: ${result.user.name} (${result.user.email})`,
         status: "SUCCESS",
         ipAddress: req.ip || (req.headers["x-forwarded-for"] as string),
         userAgent: req.headers["user-agent"],
@@ -53,7 +53,7 @@ const register = catchAsync(async (req: Request, res: Response) => {
     sendResponse(res, {
         statusCode: httpStatus.CREATED,
         success: true,
-        message: "User registered successfully",
+        message: "Account registered successfully. Please check your email to verify your account.",
         data: {
             user: result.user,
             accessToken: result.accessToken,
@@ -76,7 +76,7 @@ const login = catchAsync(async (req: Request, res: Response) => {
         role: result.user.role,
         action: "AUTH_LOGIN",
         module: "AUTH",
-        description: `User ${result.user.name} logged in successfully`,
+        description: `User signed in successfully: ${result.user.name} (${result.user.email})`,
         status: "SUCCESS",
         ipAddress: req.ip || (req.headers["x-forwarded-for"] as string),
         userAgent: req.headers["user-agent"],
@@ -85,7 +85,7 @@ const login = catchAsync(async (req: Request, res: Response) => {
     sendResponse(res, {
         statusCode: httpStatus.OK,
         success: true,
-        message: "Login successful",
+        message: "Signed in successfully.",
         data: {
             user: result.user,
             accessToken: result.accessToken,
@@ -144,7 +144,7 @@ const logout = catchAsync(async (req: Request, res: Response) => {
             role: req.user.role,
             action: "AUTH_LOGOUT",
             module: "AUTH",
-            description: "User logged out successfully",
+            description: "User signed out successfully",
             status: "SUCCESS",
             ipAddress: req.ip || (req.headers["x-forwarded-for"] as string),
             userAgent: req.headers["user-agent"],
@@ -154,7 +154,7 @@ const logout = catchAsync(async (req: Request, res: Response) => {
     sendResponse(res, {
         statusCode: httpStatus.OK,
         success: true,
-        message: "Logout successful",
+        message: "Signed out successfully.",
         data: null,
     });
 });
@@ -240,7 +240,7 @@ const updateProfile = catchAsync(async (req: Request, res: Response) => {
         role: req.user.role,
         action: "PROFILE_UPDATE",
         module: "USER",
-        description: "User profile information updated",
+        description: `User profile updated (${Object.keys(updateData).join(", ")})`,
         status: "SUCCESS",
         ipAddress: req.ip || (req.headers["x-forwarded-for"] as string),
         userAgent: req.headers["user-agent"],
@@ -250,7 +250,7 @@ const updateProfile = catchAsync(async (req: Request, res: Response) => {
     sendResponse(res, {
         statusCode: httpStatus.OK,
         success: true,
-        message: "Profile updated successfully",
+        message: "Profile updated successfully.",
         data: updatedUser,
     });
 });
@@ -263,7 +263,7 @@ const changePassword = catchAsync(async (req: Request, res: Response) => {
         role: req.user.role,
         action: "PASSWORD_CHANGE",
         module: "AUTH",
-        description: "User password changed successfully",
+        description: "User account password changed successfully",
         status: "SUCCESS",
         ipAddress: req.ip || (req.headers["x-forwarded-for"] as string),
         userAgent: req.headers["user-agent"],
@@ -272,7 +272,7 @@ const changePassword = catchAsync(async (req: Request, res: Response) => {
     sendResponse(res, {
         statusCode: httpStatus.OK,
         success: true,
-        message: "Password changed successfully",
+        message: "Password changed successfully.",
         data: null,
     });
 });
@@ -324,6 +324,18 @@ const deleteAccount = catchAsync(async (req: Request, res: Response) => {
     });
 });
 
+const validateReferralCode = catchAsync(async (req: Request, res: Response) => {
+    const code = req.params.code as string;
+    const result = await authServices.validateReferralCode(code);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Referral code verified successfully.",
+        data: result,
+    });
+});
+
 export const authControllers = {
     register,
     login,
@@ -342,4 +354,5 @@ export const authControllers = {
     resendEmailUpdate,
     verifyNewEmail,
     deleteAccount,
+    validateReferralCode,
 };

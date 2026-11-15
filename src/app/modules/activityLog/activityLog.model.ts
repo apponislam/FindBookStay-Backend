@@ -15,25 +15,28 @@ const ActivityLogSchema = new Schema<IActivityLog>(
         },
         action: {
             type: String,
-            required: [true, "Activity action is required"],
+            required: [true, "Activity action is required (e.g., 'AUTH_LOGIN', 'PROFILE_UPDATE')."],
             trim: true,
             index: true,
         },
         module: {
             type: String,
-            required: [true, "Module name is required"],
+            required: [true, "Module name is required (e.g., 'AUTH', 'USER', 'HOME', 'STAY')."],
             trim: true,
             uppercase: true,
             index: true,
         },
         description: {
             type: String,
-            required: [true, "Activity description is required"],
+            required: [true, "Please provide a clear description of the activity."],
             trim: true,
         },
         status: {
             type: String,
-            enum: ["SUCCESS", "FAILED", "WARNING", "INFO"],
+            enum: {
+                values: ["SUCCESS", "FAILED", "WARNING", "INFO"],
+                message: "Activity status must be SUCCESS, FAILED, WARNING, or INFO.",
+            },
             default: "INFO",
             index: true,
         },

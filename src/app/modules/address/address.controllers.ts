@@ -10,7 +10,7 @@ const createAddress = catchAsync(async (req: Request, res: Response) => {
     sendResponse(res, {
         statusCode: httpStatus.CREATED,
         success: true,
-        message: "Address created successfully",
+        message: "Address created successfully.",
         data: result,
     });
 });
@@ -21,7 +21,7 @@ const getAllAddresses = catchAsync(async (req: Request, res: Response) => {
     sendResponse(res, {
         statusCode: httpStatus.OK,
         success: true,
-        message: "Addresses retrieved successfully",
+        message: "Addresses retrieved successfully.",
         data: result,
     });
 });
@@ -33,7 +33,42 @@ const getAddressById = catchAsync(async (req: Request, res: Response) => {
     sendResponse(res, {
         statusCode: httpStatus.OK,
         success: true,
-        message: "Address retrieved successfully",
+        message: "Address details retrieved successfully.",
+        data: result,
+    });
+});
+
+const getChildrenByParentId = catchAsync(async (req: Request, res: Response) => {
+    const parentId = req.params.parentId as string;
+    const result = await addressServices.getChildrenByParentId(parentId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Child locations retrieved successfully.",
+        data: result,
+    });
+});
+
+const getAddressTree = catchAsync(async (req: Request, res: Response) => {
+    const result = await addressServices.getAddressTree();
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Address hierarchy tree retrieved successfully.",
+        data: result,
+    });
+});
+
+const getParentsByAddressId = catchAsync(async (req: Request, res: Response) => {
+    const id = req.params.id as string;
+    const result = await addressServices.getParentsByAddressId(id);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Location hierarchy lineage retrieved successfully.",
         data: result,
     });
 });
@@ -45,7 +80,7 @@ const updateAddress = catchAsync(async (req: Request, res: Response) => {
     sendResponse(res, {
         statusCode: httpStatus.OK,
         success: true,
-        message: "Address updated successfully",
+        message: "Address updated successfully.",
         data: result,
     });
 });
@@ -57,7 +92,7 @@ const deleteAddress = catchAsync(async (req: Request, res: Response) => {
     sendResponse(res, {
         statusCode: httpStatus.OK,
         success: true,
-        message: "Address deleted successfully",
+        message: "Address deleted successfully.",
         data: result,
     });
 });
@@ -66,6 +101,9 @@ export const addressControllers = {
     createAddress,
     getAllAddresses,
     getAddressById,
+    getChildrenByParentId,
+    getAddressTree,
+    getParentsByAddressId,
     updateAddress,
     deleteAddress,
 };

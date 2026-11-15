@@ -26,6 +26,7 @@ export interface User {
     permanentAddress?: Address;
     referralCode?: string;
     referredBy?: Types.ObjectId | null;
+    fcmTokens?: string[];
     hasHome: boolean;
     hasStay: boolean;
     hasTurf: boolean;

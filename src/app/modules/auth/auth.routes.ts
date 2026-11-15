@@ -23,6 +23,8 @@ router.post("/change-password", auth, authControllers.changePassword);
 router.post("/update-email", auth, authControllers.updateEmail);
 router.get("/verify-new-email", authControllers.verifyNewEmail);
 router.post("/resend-email-update", auth, authControllers.resendEmailUpdate);
+router.post("/fcm-token", auth, authControllers.addFcmToken);
+router.delete("/fcm-token", auth, authControllers.removeFcmToken);
 router.delete("/me", auth, authControllers.deleteAccount);
 
 export const authRoutes = router;

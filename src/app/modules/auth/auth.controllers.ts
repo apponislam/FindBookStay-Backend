@@ -138,6 +138,10 @@ const getMe = catchAsync(async (req: Request, res: Response) => {
 const logout = catchAsync(async (req: Request, res: Response) => {
     res.clearCookie("refreshToken");
 
+    if (req.user && req.body?.fcmToken) {
+        await authServices.removeFcmToken(req.user._id, req.body.fcmToken);
+    }
+
     if (req.user) {
         activityLogServices.createActivityLog({
             user: req.user._id,
@@ -227,6 +231,7 @@ const updateProfile = catchAsync(async (req: Request, res: Response) => {
         ...(data.language !== undefined && { language: data.language }),
         ...(data.presentAddress !== undefined && { presentAddress: data.presentAddress }),
         ...(data.permanentAddress !== undefined && { permanentAddress: data.permanentAddress }),
+        ...(data.fcmTokens !== undefined && { fcmTokens: data.fcmTokens }),
         ...(data.hasHome !== undefined && { hasHome: data.hasHome }),
         ...(data.hasStay !== undefined && { hasStay: data.hasStay }),
         ...(data.hasTurf !== undefined && { hasTurf: data.hasTurf }),
@@ -336,6 +341,30 @@ const validateReferralCode = catchAsync(async (req: Request, res: Response) => {
     });
 });
 
+const addFcmToken = catchAsync(async (req: Request, res: Response) => {
+    const { fcmToken } = req.body;
+    const result = await authServices.addFcmToken(req.user._id, fcmToken);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: result.message,
+        data: null,
+    });
+});
+
+const removeFcmToken = catchAsync(async (req: Request, res: Response) => {
+    const { fcmToken } = req.body;
+    const result = await authServices.removeFcmToken(req.user._id, fcmToken);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: result.message,
+        data: null,
+    });
+});
+
 export const authControllers = {
     register,
     login,
@@ -355,4 +384,6 @@ export const authControllers = {
     verifyNewEmail,
     deleteAccount,
     validateReferralCode,
+    addFcmToken,
+    removeFcmToken,
 };

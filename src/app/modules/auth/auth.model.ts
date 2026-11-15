@@ -78,6 +78,11 @@ const userSchemaDefinition: any = {
         default: null,
     },
 
+    fcmTokens: {
+        type: [String],
+        default: [],
+    },
+
     hasHome: {
         type: Boolean,
         default: false,

@@ -65,7 +65,7 @@ const registerUser = async (data: any) => {
     return { user: userWithoutSensitive, accessToken, refreshToken };
 };
 
-const loginUser = async (data: { email: string; password: string }) => {
+const loginUser = async (data: { email: string; password: string; fcmToken?: string }) => {
     // Find user
     const user = await UserModel.findOne({ email: data.email.toLowerCase(), isDeleted: false });
     if (!user) throw new ApiError(httpStatus.UNAUTHORIZED, "Incorrect email or password. Please verify your credentials and try again.");
@@ -79,8 +79,14 @@ const loginUser = async (data: { email: string; password: string }) => {
         throw new ApiError(httpStatus.FORBIDDEN, "Your account has been deactivated. Please contact support for assistance.");
     }
 
-    // Update last login
-    await UserModel.updateOne({ _id: user._id }, { $set: { lastLogin: new Date() } });
+    // Update last login and optionally add FCM device token if provided (capped at 5 recent devices)
+    const updatePayload: any = { $set: { lastLogin: new Date() } };
+    if (data.fcmToken) {
+        const existingTokens: string[] = user.fcmTokens || [];
+        const cappedTokens = [...existingTokens.filter((t: string) => t !== data.fcmToken), data.fcmToken].slice(-5);
+        updatePayload.$set.fcmTokens = cappedTokens;
+    }
+    await UserModel.updateOne({ _id: user._id }, updatePayload);
 
     // Generate tokens
     const jwtPayload = {
@@ -410,6 +416,40 @@ const validateReferralCode = async (code: string) => {
     };
 };
 
+const MAX_DEVICE_TOKENS = 5;
+
+const addFcmToken = async (userId: string, fcmToken: string) => {
+    if (!fcmToken) {
+        throw new ApiError(httpStatus.BAD_REQUEST, "FCM device token is required.");
+    }
+
+    const user = await UserModel.findById(userId).select("fcmTokens");
+    if (!user) {
+        throw new ApiError(httpStatus.NOT_FOUND, "User account not found.");
+    }
+
+    const existingTokens: string[] = user.fcmTokens || [];
+    // Remove if duplicate, append new token, keep only the most recent MAX_DEVICE_TOKENS
+    const cappedTokens = [...existingTokens.filter((t) => t !== fcmToken), fcmToken].slice(-MAX_DEVICE_TOKENS);
+
+    await UserModel.updateOne({ _id: userId }, { $set: { fcmTokens: cappedTokens } });
+
+    return { message: "FCM token registered successfully." };
+};
+
+const removeFcmToken = async (userId: string, fcmToken: string) => {
+    if (!fcmToken) {
+        throw new ApiError(httpStatus.BAD_REQUEST, "FCM device token is required.");
+    }
+
+    await UserModel.updateOne(
+        { _id: userId },
+        { $pull: { fcmTokens: fcmToken } }
+    );
+
+    return { message: "FCM token removed successfully." };
+};
+
 export const authServices = {
     registerUser,
     loginUser,
@@ -428,4 +468,6 @@ export const authServices = {
     verifyNewEmail,
     deleteUser,
     validateReferralCode,
+    addFcmToken,
+    removeFcmToken,
 };

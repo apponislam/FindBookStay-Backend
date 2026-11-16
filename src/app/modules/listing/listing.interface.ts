@@ -368,68 +368,6 @@ export interface IListing {
     updatedAt?: Date;
 }
 
-// Filter and query options for listing search and marketplace browsing
-export interface IListingFilterOptions {
-    searchTerm?: string;
-    category?: ListingCategory;
-    subCategory?: ListingSubCategory;
-    status?: ListingStatus;
-    availabilityStatus?: AvailabilityStatus;
-    createdBy?: string;
-    owner?: string;
 
-    // Pricing
-    minPrice?: number;
-    maxPrice?: number;
-    priceUnit?: PriceUnit;
-    isNegotiable?: boolean;
 
-    // Location
-    address?: string;
-    area?: string;
-    city?: string;
-    state?: string;
-    country?: string;
-
-    // Geospatial Radius Search
-    lat?: number;
-    lng?: number;
-    radiusInKm?: number;
-
-    // Attributes
-    isFeatured?: boolean;
-    isVerified?: boolean;
-    amenities?: string[];
-
-    // Vertical Specific Filters
-    // HOME
-    targetTenant?: TargetTenant;
-    rentType?: RentType;
-    bedrooms?: number;
-    bathrooms?: number;
-    isFurnished?: boolean;
-
-    // STAY
-    stayType?: StayType;
-    roomType?: RoomType;
-    maxGuests?: number;
-    freeBreakfast?: boolean;
-
-    // TURF
-    sportType?: SportType;
-    turfSize?: TurfSize;
-    surfaceType?: SurfaceType;
-    hasFloodlights?: boolean;
-
-    // PROPERTY
-    propertyType?: PropertyType;
-    ownershipType?: OwnershipType;
-    completionStatus?: CompletionStatus;
-
-    // Pagination & Sort
-    page?: number;
-    limit?: number;
-    sortBy?: "price" | "createdAt" | "viewsCount" | "ratingAverage" | string;
-    sortOrder?: "asc" | "desc";
-}
 

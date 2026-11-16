@@ -3,7 +3,7 @@ import { IReview } from "./review.interface";
 import { ListingModel } from "../listing/listing.model";
 
 export interface ReviewModelType extends Model<IReview> {
-    calculateAverageRating(listingId: Types.ObjectId): Promise<void>;
+    calculateAverageRating(listingId: Types.ObjectId | any): Promise<void>;
 }
 
 const SubRatingsSchema = new Schema(
@@ -83,11 +83,20 @@ ReviewSchema.index({ user: 1, isDeleted: 1, createdAt: -1 });
 ReviewSchema.index({ rating: 1 });
 
 // Static method to recalculate listing rating and total reviews
-ReviewSchema.statics.calculateAverageRating = async function (listingId: Types.ObjectId): Promise<void> {
+ReviewSchema.statics.calculateAverageRating = async function (listingId: Types.ObjectId | any): Promise<void> {
+    const targetId =
+        listingId instanceof Types.ObjectId
+            ? listingId
+            : typeof listingId === "string"
+            ? new Types.ObjectId(listingId)
+            : (listingId as any)?._id
+            ? new Types.ObjectId((listingId as any)._id)
+            : listingId;
+
     const stats = await this.aggregate([
         {
             $match: {
-                listing: listingId,
+                listing: targetId,
                 isDeleted: false,
                 isApproved: true,
             },

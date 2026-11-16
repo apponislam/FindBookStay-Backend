@@ -4,7 +4,6 @@ import crypto from "crypto";
 import ApiError from "../../../errors/ApiError";
 import {
     IListing,
-    IListingFilterOptions,
     ListingCategory,
     ListingStatus,
     AvailabilityStatus,
@@ -117,7 +116,7 @@ const createListing = async (
  * Get all listings with advanced filtering, full-text search, geo-radius, and pagination
  */
 const getAllListings = async (
-    filters: IListingFilterOptions,
+    filters: Record<string, any>,
     reqUser?: { _id?: string; role?: string }
 ) => {
     const query: any = { isDeleted: false };
@@ -329,7 +328,7 @@ const getListingByIdOrSlug = async (
 /**
  * Get user's own listings
  */
-const getMyListings = async (userId: string, filters: IListingFilterOptions) => {
+const getMyListings = async (userId: string, filters: Record<string, any>) => {
     const query: any = {
         createdBy: new Types.ObjectId(userId),
         isDeleted: false,

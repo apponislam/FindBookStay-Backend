@@ -495,3 +495,4 @@ ListingSchema.index({
 });
 
 export const ListingModel = mongoose.model<IListing>("Listing", ListingSchema);
+

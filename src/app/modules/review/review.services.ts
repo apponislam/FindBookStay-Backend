@@ -1,7 +1,7 @@
 import { Types } from "mongoose";
 import httpStatus from "http-status";
 import ApiError from "../../../errors/ApiError";
-import { IReview, IReviewFilterOptions } from "./review.interface";
+import { IReview } from "./review.interface";
 import { ReviewModel } from "./review.model";
 import { ListingModel } from "../listing/listing.model";
 import { activityLogServices } from "../activityLog/activityLog.services";
@@ -86,7 +86,7 @@ const createReview = async (
 /**
  * Get all reviews for a specific listing with breakdown
  */
-const getReviewsByListing = async (listingId: string, query: IReviewFilterOptions) => {
+const getReviewsByListing = async (listingId: string, query: Record<string, any>) => {
     if (!Types.ObjectId.isValid(listingId)) {
         throw new ApiError(httpStatus.BAD_REQUEST, "Invalid listing ID format.");
     }
@@ -160,7 +160,7 @@ const getReviewsByListing = async (listingId: string, query: IReviewFilterOption
 /**
  * Get reviews written by the authenticated user
  */
-const getMyReviews = async (userId: string, query: IReviewFilterOptions) => {
+const getMyReviews = async (userId: string, query: Record<string, any>) => {
     const filter: any = {
         user: new Types.ObjectId(userId),
         isDeleted: false,
@@ -344,7 +344,7 @@ const replyToReview = async (
 /**
  * Get all reviews (Admin Only)
  */
-const getAllReviews = async (query: IReviewFilterOptions) => {
+const getAllReviews = async (query: Record<string, any>) => {
     const filter: any = { isDeleted: false };
 
     if (query.rating) filter.rating = Number(query.rating);

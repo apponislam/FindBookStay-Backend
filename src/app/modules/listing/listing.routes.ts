@@ -92,3 +92,4 @@ router.patch("/:id/toggle-feature", auth, authorize(["ADMIN"]), listingControlle
 router.patch("/:id/toggle-verify", auth, authorize(["ADMIN"]), listingControllers.toggleVerification);
 
 export const listingRoutes = router;
+

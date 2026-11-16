@@ -4,19 +4,26 @@ import { addressSchemas } from "./schemas/address.schemas";
 import { policySchemas } from "./schemas/policy.schemas";
 import { activityLogSchemas } from "./schemas/activityLog.schemas";
 import { listingSchemas } from "./schemas/listing.schemas";
+import { reviewSchemas } from "./schemas/review.schemas";
+import { favoriteSchemas } from "./schemas/favorite.schemas";
 
 import { authPaths } from "./paths/auth.paths";
+import { listingPaths } from "./paths/listing.paths";
+import { reviewPaths } from "./paths/review.paths";
+import { favoritePaths } from "./paths/favorite.paths";
 import { addressPaths } from "./paths/address.paths";
 import { policyPaths } from "./paths/policy.paths";
 import { activityLogPaths } from "./paths/activityLog.paths";
-import { listingPaths } from "./paths/listing.paths";
 
 export const swaggerSpec = {
     openapi: "3.0.3",
     info: {
         title: "FindBookStay API Documentation",
         version: "1.0.0",
-        description: "Production REST API for **FindBookStay** — The verified marketplace for home rentals, boutique hotel stays, sports turfs, and direct property purchases with 0% broker fees.\n\n" + "### Authentication\n" + "Protected routes require a valid JWT Bearer token. Click the **Authorize** button on the right and input: `Bearer <your_access_token>`.",
+        description:
+            "Production REST API for **FindBookStay** — The verified marketplace for home rentals, boutique hotel stays, sports turfs, and direct property purchases with 0% broker fees.\n\n" +
+            "### Authentication\n" +
+            "Protected routes require a valid JWT Bearer token. Click the **Authorize** button on the right and input: `Bearer <your_access_token>`.",
         contact: {
             name: "FindBookStay Engineering Team",
             email: "support@findbookstay.com",
@@ -51,6 +58,18 @@ export const swaggerSpec = {
             description: "Admin moderation tools: listing approval, rejection, featured spotlights, and verification badges",
         },
         {
+            name: "Reviews & Ratings",
+            description: "Verified customer reviews, 1-to-5 star ratings, breakdown distribution, and host response replies",
+        },
+        {
+            name: "Reviews & Ratings (Admin Only)",
+            description: "Platform-wide review moderation and inspection",
+        },
+        {
+            name: "Favorites & Wishlist",
+            description: "User property bookmarks, wishlist collections, and personal notes",
+        },
+        {
             name: "Notifications (FCM)",
             description: "FCM device registration, token capping (max 5 active devices), and device unregistration",
         },
@@ -83,11 +102,15 @@ export const swaggerSpec = {
             ...policySchemas,
             ...activityLogSchemas,
             ...listingSchemas,
+            ...reviewSchemas,
+            ...favoriteSchemas,
         },
     },
     paths: {
         ...authPaths,
         ...listingPaths,
+        ...reviewPaths,
+        ...favoritePaths,
         ...addressPaths,
         ...policyPaths,
         ...activityLogPaths,

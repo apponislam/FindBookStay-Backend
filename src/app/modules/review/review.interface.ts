@@ -1,4 +1,5 @@
 import { Types } from "mongoose";
+import { IListing } from "../listing/listing.interface";
 
 export interface IReviewSubRatings {
     cleanliness?: number;
@@ -17,7 +18,7 @@ export interface IReviewReply {
 export interface IReview {
     _id?: Types.ObjectId;
     user: Types.ObjectId;
-    listing: Types.ObjectId;
+    listing: Types.ObjectId | IListing;
     rating: number; // 1 to 5
     comment: string;
     images?: string[];
@@ -28,23 +29,4 @@ export interface IReview {
     isDeleted?: boolean;
     createdAt?: Date;
     updatedAt?: Date;
-}
-
-export interface IReviewFilterOptions {
-    listingId?: string;
-    userId?: string;
-    rating?: number;
-    search?: string;
-    page?: number;
-    limit?: number;
-    sortBy?: "rating" | "createdAt" | string;
-    sortOrder?: "asc" | "desc";
-}
-
-export interface IRatingBreakdown {
-    1: number;
-    2: number;
-    3: number;
-    4: number;
-    5: number;
 }

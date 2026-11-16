@@ -32,6 +32,8 @@ export const commonSchemas = {
             limit: { type: "integer", example: 10 },
             total: { type: "integer", example: 45 },
             totalPages: { type: "integer", example: 5 },
+            hasNext: { type: "boolean", example: true },
+            hasPrev: { type: "boolean", example: false },
         },
     },
 };

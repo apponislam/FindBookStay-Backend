@@ -6,11 +6,13 @@ import { activityLogSchemas } from "./schemas/activityLog.schemas";
 import { listingSchemas } from "./schemas/listing.schemas";
 import { reviewSchemas } from "./schemas/review.schemas";
 import { favoriteSchemas } from "./schemas/favorite.schemas";
+import { reportSchemas } from "./schemas/report.schemas";
 
 import { authPaths } from "./paths/auth.paths";
 import { listingPaths } from "./paths/listing.paths";
 import { reviewPaths } from "./paths/review.paths";
 import { favoritePaths } from "./paths/favorite.paths";
+import { reportPaths } from "./paths/report.paths";
 import { addressPaths } from "./paths/address.paths";
 import { policyPaths } from "./paths/policy.paths";
 import { activityLogPaths } from "./paths/activityLog.paths";
@@ -70,6 +72,14 @@ export const swaggerSpec = {
             description: "User property bookmarks, wishlist collections, and personal notes",
         },
         {
+            name: "Trust & Safety (Reports)",
+            description: "User reporting against fraudulent listings or abusive users with evidence attachments",
+        },
+        {
+            name: "Trust & Safety (Admin Only)",
+            description: "Moderation review, investigation, and dispute resolution for reported listings & accounts",
+        },
+        {
             name: "Notifications (FCM)",
             description: "FCM device registration, token capping (max 5 active devices), and device unregistration",
         },
@@ -104,6 +114,7 @@ export const swaggerSpec = {
             ...listingSchemas,
             ...reviewSchemas,
             ...favoriteSchemas,
+            ...reportSchemas,
         },
     },
     paths: {
@@ -111,6 +122,7 @@ export const swaggerSpec = {
         ...listingPaths,
         ...reviewPaths,
         ...favoritePaths,
+        ...reportPaths,
         ...addressPaths,
         ...policyPaths,
         ...activityLogPaths,

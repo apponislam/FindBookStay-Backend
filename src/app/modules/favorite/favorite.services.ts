@@ -81,12 +81,16 @@ const getMyFavorites = async (userId: string, query: Record<string, any>) => {
     // Filter out items where the listing was deleted
     const activeFavorites = favorites.filter((fav) => fav.listing !== null);
 
+    const totalPages = Math.ceil(total / limit) || 1;
+
     return {
         meta: {
             page,
             limit,
             total,
-            totalPages: Math.ceil(total / limit),
+            totalPages,
+            hasNext: page < totalPages,
+            hasPrev: page > 1,
         },
         data: activeFavorites,
     };

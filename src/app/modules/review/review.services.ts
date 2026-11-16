@@ -145,12 +145,16 @@ const getReviewsByListing = async (listingId: string, query: Record<string, any>
         }
     });
 
+    const totalPages = Math.ceil(total / limit) || 1;
+
     return {
         meta: {
             page,
             limit,
             total,
-            totalPages: Math.ceil(total / limit),
+            totalPages,
+            hasNext: page < totalPages,
+            hasPrev: page > 1,
         },
         ratingBreakdown,
         data: reviews,
@@ -181,12 +185,16 @@ const getMyReviews = async (userId: string, query: Record<string, any>) => {
         ReviewModel.countDocuments(filter),
     ]);
 
+    const totalPages = Math.ceil(total / limit) || 1;
+
     return {
         meta: {
             page,
             limit,
             total,
-            totalPages: Math.ceil(total / limit),
+            totalPages,
+            hasNext: page < totalPages,
+            hasPrev: page > 1,
         },
         data: reviews,
     };
@@ -371,12 +379,16 @@ const getAllReviews = async (query: Record<string, any>) => {
         ReviewModel.countDocuments(filter),
     ]);
 
+    const totalPages = Math.ceil(total / limit) || 1;
+
     return {
         meta: {
             page,
             limit,
             total,
-            totalPages: Math.ceil(total / limit),
+            totalPages,
+            hasNext: page < totalPages,
+            hasPrev: page > 1,
         },
         data: reviews,
     };

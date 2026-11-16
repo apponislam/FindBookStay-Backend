@@ -36,6 +36,8 @@ export const reviewPaths = {
                                             limit: { type: "number", example: 10 },
                                             total: { type: "number", example: 24 },
                                             totalPages: { type: "number", example: 3 },
+                                            hasNext: { type: "boolean", example: true },
+                                            hasPrev: { type: "boolean", example: false },
                                             ratingBreakdown: {
                                                 type: "object",
                                                 properties: {

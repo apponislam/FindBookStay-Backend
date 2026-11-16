@@ -274,12 +274,16 @@ const getAllListings = async (
         ListingModel.countDocuments(query),
     ]);
 
+    const totalPages = Math.ceil(total / limit) || 1;
+
     return {
         meta: {
             page,
             limit,
             total,
-            totalPages: Math.ceil(total / limit),
+            totalPages,
+            hasNext: page < totalPages,
+            hasPrev: page > 1,
         },
         data: listings,
     };
@@ -357,12 +361,16 @@ const getMyListings = async (userId: string, filters: Record<string, any>) => {
         ListingModel.countDocuments(query),
     ]);
 
+    const totalPages = Math.ceil(total / limit) || 1;
+
     return {
         meta: {
             page,
             limit,
             total,
-            totalPages: Math.ceil(total / limit),
+            totalPages,
+            hasNext: page < totalPages,
+            hasPrev: page > 1,
         },
         data: listings,
     };

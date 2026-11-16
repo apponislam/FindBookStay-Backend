@@ -3,6 +3,7 @@ import { authRoutes } from "../modules/auth/auth.routes";
 import { listingRoutes } from "../modules/listing/listing.routes";
 import { reviewRoutes } from "../modules/review/review.routes";
 import { favoriteRoutes } from "../modules/favorite/favorite.routes";
+import { reportRoutes } from "../modules/report/report.routes";
 import { activityLogRoutes } from "../modules/activityLog/activityLog.routes";
 import { addressRoutes } from "../modules/address/address.routes";
 import { policyRoutes } from "../modules/policy/policy.routes";
@@ -26,6 +27,10 @@ const moduleRoutes = [
     {
         path: "/favorites",
         route: favoriteRoutes,
+    },
+    {
+        path: "/reports",
+        route: reportRoutes,
     },
     {
         path: "/activity-logs",

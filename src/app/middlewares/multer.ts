@@ -221,3 +221,161 @@ export const uploadProfileImage = (req: Request, res: Response, next: NextFuncti
         next();
     });
 };
+
+/**
+ * Listing Images Upload & Form-Data Sanitizer Middleware
+ * 1. Accepts multipart/form-data with fields:
+ *    - "featuredImage": single cover photo
+ *    - "images": up to 15 gallery photos
+ * 2. Optimizes uploaded files with Sharp into /uploads/listings/ in modern WebP format
+ * 3. Handles base64 data URIs in JSON if files are passed as strings
+ * 4. Parses nested JSON strings in multipart form-data (e.g. 'location', 'homeDetails', etc.)
+ */
+export const uploadListingImages = (req: Request, res: Response, next: NextFunction): void => {
+    const upload = uploadMemory.fields([
+        { name: "featuredImage", maxCount: 1 },
+        { name: "images", maxCount: 15 },
+        { name: "image", maxCount: 1 },
+    ]);
+
+    upload(req, res, async (err: any) => {
+        if (err) {
+            return next(err);
+        }
+
+        // 1. Parse stringified JSON fields in multipart/form-data
+        if (req.body) {
+            if (typeof req.body.data === "string") {
+                try {
+                    const parsed = JSON.parse(req.body.data);
+                    req.body = { ...parsed, ...req.body };
+                } catch {}
+            }
+
+            const jsonFields = [
+                "location",
+                "highlights",
+                "amenities",
+                "rules",
+                "nearbyPlaces",
+                "bookingRules",
+                "minimumBookingDuration",
+                "maximumBookingDuration",
+                "homeDetails",
+                "stayDetails",
+                "turfDetails",
+                "propertyDetails",
+                "images",
+            ];
+
+            for (const field of jsonFields) {
+                if (typeof req.body[field] === "string") {
+                    try {
+                        req.body[field] = JSON.parse(req.body[field]);
+                    } catch {
+                        // If it's comma-separated list like amenities="Wifi,AC,Pool", split it
+                        if (["amenities", "rules", "nearbyPlaces"].includes(field) && req.body[field].includes(",")) {
+                            req.body[field] = req.body[field].split(",").map((item: string) => item.trim());
+                        }
+                    }
+                }
+            }
+
+            // Convert numeric/boolean strings in form-data
+            const numericFields = ["price", "originalPrice", "securityDeposit"];
+            for (const numField of numericFields) {
+                if (req.body[numField] !== undefined && typeof req.body[numField] === "string") {
+                    const parsedNum = Number(req.body[numField]);
+                    if (!isNaN(parsedNum)) req.body[numField] = parsedNum;
+                }
+            }
+
+            const booleanFields = ["isNegotiable", "bookingEnabled", "isFeatured", "isVerified"];
+            for (const boolField of booleanFields) {
+                if (typeof req.body[boolField] === "string") {
+                    req.body[boolField] = req.body[boolField] === "true";
+                }
+            }
+        }
+
+        const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
+        const uploadedImages: string[] = Array.isArray(req.body.images) ? [...req.body.images] : [];
+
+        // 2. Process Binary Uploads with Sharp
+        try {
+            // A. Single featured image
+            const featuredFile = files?.["featuredImage"]?.[0] || files?.["image"]?.[0];
+            if (featuredFile && featuredFile.buffer) {
+                const optimized = await optimizeBuffer(featuredFile.buffer, "listings", {
+                    maxWidth: 1920,
+                    maxHeight: 1200,
+                    quality: 80,
+                    format: "webp",
+                });
+                req.body.featuredImage = optimized.relativePath;
+                console.log(`⚡ [Sharp Optimized Featured Image]: ${optimized.relativePath} (${(optimized.size / 1024).toFixed(1)} KB)`);
+            }
+
+            // B. Multiple gallery images
+            const galleryFiles = files?.["images"] || [];
+            if (galleryFiles.length > 0) {
+                for (const gFile of galleryFiles) {
+                    if (gFile && gFile.buffer) {
+                        const optimized = await optimizeBuffer(gFile.buffer, "listings", {
+                            maxWidth: 1920,
+                            maxHeight: 1200,
+                            quality: 80,
+                            format: "webp",
+                        });
+                        uploadedImages.push(optimized.relativePath);
+                    }
+                }
+            }
+        } catch (sharpError) {
+            console.error("❌ [Sharp Listing Images Error]:", sharpError);
+            return next(new ApiError(httpStatus.BAD_REQUEST, "Failed to optimize uploaded listing images."));
+        }
+
+        // 3. Process Base64 strings if passed in body
+        if (req.body.featuredImage && typeof req.body.featuredImage === "string") {
+            try {
+                req.body.featuredImage = await processBase64Image(req.body.featuredImage, "listings", {
+                    maxWidth: 1920,
+                    maxHeight: 1200,
+                    quality: 80,
+                    format: "webp",
+                });
+            } catch (err) {
+                console.error("❌ [Sharp Base64 Featured Image Error]:", err);
+            }
+        }
+
+        if (Array.isArray(uploadedImages) && uploadedImages.length > 0) {
+            const processedList: string[] = [];
+            for (const img of uploadedImages) {
+                if (typeof img === "string" && img.startsWith("data:image/")) {
+                    const optimizedUrl = await processBase64Image(img, "listings", {
+                        maxWidth: 1920,
+                        maxHeight: 1200,
+                        quality: 80,
+                        format: "webp",
+                    });
+                    if (optimizedUrl) processedList.push(optimizedUrl);
+                } else if (typeof img === "string") {
+                    processedList.push(img);
+                }
+            }
+            req.body.images = processedList;
+        } else if (uploadedImages.length > 0) {
+            req.body.images = uploadedImages;
+        }
+
+        // Default featuredImage to first gallery image if not set
+        if (!req.body.featuredImage && Array.isArray(req.body.images) && req.body.images.length > 0) {
+            req.body.featuredImage = req.body.images[0];
+        }
+
+        next();
+    });
+};
+

@@ -3,6 +3,7 @@ import { authRoutes } from "../modules/auth/auth.routes";
 import { activityLogRoutes } from "../modules/activityLog/activityLog.routes";
 import { addressRoutes } from "../modules/address/address.routes";
 import { policyRoutes } from "../modules/policy/policy.routes";
+import { listingRoutes } from "../modules/listing/listing.routes";
 import { swaggerRouter } from "../docs/swagger";
 const router = express.Router();
 
@@ -10,6 +11,10 @@ const moduleRoutes = [
     {
         path: "/auth",
         route: authRoutes,
+    },
+    {
+        path: "/listings",
+        route: listingRoutes,
     },
     {
         path: "/activity-logs",

@@ -3,11 +3,13 @@ import { authSchemas } from "./schemas/auth.schemas";
 import { addressSchemas } from "./schemas/address.schemas";
 import { policySchemas } from "./schemas/policy.schemas";
 import { activityLogSchemas } from "./schemas/activityLog.schemas";
+import { listingSchemas } from "./schemas/listing.schemas";
 
 import { authPaths } from "./paths/auth.paths";
 import { addressPaths } from "./paths/address.paths";
 import { policyPaths } from "./paths/policy.paths";
 import { activityLogPaths } from "./paths/activityLog.paths";
+import { listingPaths } from "./paths/listing.paths";
 
 export const swaggerSpec = {
     openapi: "3.0.3",
@@ -41,6 +43,14 @@ export const swaggerSpec = {
             description: "Current user profile retrieval, multipart profile updates, and account management",
         },
         {
+            name: "Listings Marketplace",
+            description: "Core marketplace listings across all 4 verticals: HOME (rentals & bachelor seats), STAY (boutique hotels & resorts), TURF (hourly sports venues), and PROPERTY (buy/sell)",
+        },
+        {
+            name: "Listings Marketplace (Admin Only)",
+            description: "Admin moderation tools: listing approval, rejection, featured spotlights, and verification badges",
+        },
+        {
             name: "Notifications (FCM)",
             description: "FCM device registration, token capping (max 5 active devices), and device unregistration",
         },
@@ -72,10 +82,12 @@ export const swaggerSpec = {
             ...addressSchemas,
             ...policySchemas,
             ...activityLogSchemas,
+            ...listingSchemas,
         },
     },
     paths: {
         ...authPaths,
+        ...listingPaths,
         ...addressPaths,
         ...policyPaths,
         ...activityLogPaths,

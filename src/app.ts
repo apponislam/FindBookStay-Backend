@@ -8,6 +8,7 @@ import notFound from "./errors/notFound";
 import globalErrorHandler from "./errors/globalErrorhandler";
 import router from "./app/routes";
 import config from "./app/config";
+import { swaggerRouter } from "./app/docs/swagger";
 
 const app: Application = express();
 
@@ -42,6 +43,9 @@ app.get("/", (req: Request, res: Response) => {
         res.send(modifiedHtml);
     });
 });
+
+// API Documentation (Swagger UI)
+app.use("/api-docs", swaggerRouter);
 
 app.use("/api/v1", router);
 

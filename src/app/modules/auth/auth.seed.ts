@@ -1,5 +1,6 @@
 import bcrypt from "bcrypt";
 import { UserModel } from "./auth.model";
+import { User } from "./auth.interface";
 import config from "../../config";
 
 export const seedAdmin = async () => {
@@ -7,36 +8,69 @@ export const seedAdmin = async () => {
         const { name, email, password, phone } = config.initialAdmin || {};
 
         if (!email || !password || !name || !phone) {
-            console.log("⚠️ Initial admin configuration missing in environment variables, skipping admin seeding");
+            console.log("⚠️ Initial admin configuration missing in environment variables, skipping admin seeding.");
             return;
         }
 
-        const adminExists = await UserModel.findOne({
-            role: "ADMIN",
-        });
+        const normalizedEmail = email.toLowerCase().trim();
 
-        if (!adminExists) {
-            console.log("📝 No admin found, creating initial admin...");
+        // 1. Check if user with this initial admin email already exists
+        const adminByEmail = await UserModel.findOne({ email: normalizedEmail });
 
-            const hashedPassword = await bcrypt.hash(password, Number(config.bcrypt_salt_rounds));
-
-            const admin = {
-                name,
-                email,
-                password: hashedPassword,
-                role: "ADMIN",
-                phone,
-                isActive: true,
-                isEmailVerified: true,
-            };
-
-            await UserModel.create(admin as any);
-
-            console.log("✅ Admin created:", email);
-        } else {
-            console.log("✅ Admin already exists, skipping creation");
+        if (adminByEmail) {
+            if (adminByEmail.role !== "ADMIN") {
+                await UserModel.updateOne(
+                    { _id: adminByEmail._id },
+                    {
+                        $set: {
+                            role: "ADMIN",
+                            isActive: true,
+                            isEmailVerified: true,
+                            isDeleted: false,
+                        },
+                    }
+                );
+                console.log(`✅ Existing user (${normalizedEmail}) upgraded to ADMIN role.`);
+            } else {
+                console.log(`✅ Admin account (${normalizedEmail}) already exists, skipping creation.`);
+            }
+            return;
         }
+
+        // 2. Check if any admin exists in the system
+        const anyAdmin = await UserModel.findOne({ role: "ADMIN", isDeleted: false });
+        if (anyAdmin) {
+            console.log(`✅ Admin account (${anyAdmin.email}) already exists in system, skipping seeding.`);
+            return;
+        }
+
+        // 3. Create initial admin
+        console.log(`📝 No admin found in system. Seeding initial admin (${normalizedEmail})...`);
+
+        const saltRounds = Number(config.bcrypt_salt_rounds) || 12;
+        const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+        const adminData: Partial<User> = {
+            name: name.trim(),
+            email: normalizedEmail,
+            password: hashedPassword,
+            role: "ADMIN",
+            phone: phone.trim(),
+            hasHome: false,
+            hasStay: false,
+            hasTurf: false,
+            hasProperty: false,
+            fcmTokens: [],
+            isWrongReferral: false,
+            wrongReferralCode: null,
+            isActive: true,
+            isEmailVerified: true,
+            isDeleted: false,
+        };
+
+        await UserModel.create(adminData);
+        console.log(`✅ Initial Admin created successfully: ${normalizedEmail}`);
     } catch (error) {
-        console.error("❌ Error seeding admin:", error);
+        console.error("❌ [Seed Admin] Error seeding admin account:", error);
     }
 };

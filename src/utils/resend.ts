@@ -15,13 +15,14 @@ export interface ISendEmailPayload {
 }
 
 /**
- * Send email via Resend API
+ * Send email via Resend API with response inspection and clear logging
  */
 export const sendEmailWithResend = async (payload: ISendEmailPayload) => {
     const { to, subject, html, from, cc, bcc, replyTo, text } = payload;
+    const recipient = Array.isArray(to) ? to.join(", ") : to;
 
     try {
-        const data = await resend.emails.send({
+        const result = await resend.emails.send({
             from: from || config.mail.from_email,
             to: Array.isArray(to) ? to : [to],
             subject,
@@ -32,9 +33,15 @@ export const sendEmailWithResend = async (payload: ISendEmailPayload) => {
             ...(text && { text }),
         });
 
-        return data;
-    } catch (error) {
-        console.error("Resend Email error:", error);
+        if (result.error) {
+            console.error(`❌ [Resend API Error] Failed to send "${subject}" to ${recipient}:`, result.error);
+            throw new Error(result.error.message);
+        }
+
+        console.log(`✉️ [Resend Success] Email sent to ${recipient}: "${subject}" (ID: ${result.data?.id})`);
+        return result.data;
+    } catch (error: any) {
+        console.error(`❌ [Resend Email Error] Failed to send "${subject}" to ${recipient}:`, error?.message || error);
         throw error;
     }
 };

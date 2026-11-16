@@ -8,8 +8,12 @@ import { authServices } from "./auth.services";
 import { activityLogServices } from "../activityLog/activityLog.services";
 
 const register = catchAsync(async (req: Request, res: Response) => {
+    console.log("📥 [Register Request Body]:", JSON.stringify(req.body, null, 2));
 
     const data = req.body;
+
+    // Capture referral input from either referredBy or referralCode
+    const referralInput = data.referredBy || data.referralCode;
 
     // Parse JSON fields
     const userData: any = {
@@ -21,8 +25,15 @@ const register = catchAsync(async (req: Request, res: Response) => {
         profileImage: data.profileImage,
         presentAddress: data.presentAddress,
         permanentAddress: data.permanentAddress,
-        referredBy: data.referredBy,
+        referredBy: referralInput,
     };
+
+    // Clean up empty optional fields so MongoDB / Mongoose casting doesn't fail
+    if (!userData.referredBy) delete userData.referredBy;
+    if (!userData.presentAddress) delete userData.presentAddress;
+    if (!userData.permanentAddress) delete userData.permanentAddress;
+    if (!userData.phone) delete userData.phone;
+    if (!userData.profileImage) delete userData.profileImage;
 
     // Basic validation
     if (!userData.name || !userData.email || !userData.password) {
@@ -94,9 +105,9 @@ const login = catchAsync(async (req: Request, res: Response) => {
 });
 
 const verifyEmail = catchAsync(async (req: Request, res: Response) => {
-    const token = req.query.token as string | undefined;
-    const otp = req.query.otp as string | undefined;
-    const email = req.query.email as string;
+    const token = (req.query.token as string | undefined) || req.body?.token;
+    const otp = (req.query.otp as string | undefined) || req.body?.otp;
+    const email = (req.query.email as string) || req.body?.email;
 
     if (!email) {
         throw new ApiError(httpStatus.BAD_REQUEST, "Email is required");

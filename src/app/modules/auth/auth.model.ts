@@ -12,7 +12,6 @@ const addressSchemaDefinition = {
         type: {
             type: String,
             enum: ["Point"],
-            default: "Point",
         },
         coordinates: {
             type: [Number], // [longitude, latitude]
@@ -67,7 +66,6 @@ const userSchemaDefinition: any = {
 
     referralCode: {
         type: String,
-        sparse: true,
         trim: true,
         uppercase: true,
     },
@@ -75,6 +73,17 @@ const userSchemaDefinition: any = {
     referredBy: {
         type: Schema.Types.ObjectId,
         ref: "User",
+        default: null,
+    },
+
+    isWrongReferral: {
+        type: Boolean,
+        default: false,
+    },
+
+    wrongReferralCode: {
+        type: String,
+        trim: true,
         default: null,
     },
 
@@ -171,6 +180,7 @@ UserSchema.index({ "permanentAddress.location": "2dsphere" });
 // Referral indexes
 UserSchema.index({ referralCode: 1 }, { unique: true, sparse: true });
 UserSchema.index({ referredBy: 1 });
+UserSchema.index({ isWrongReferral: 1 });
 
 // Activity tracking optimization
 UserSchema.index({ lastLogin: -1 });

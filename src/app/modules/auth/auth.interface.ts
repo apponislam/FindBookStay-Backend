@@ -10,7 +10,7 @@ export interface Address {
     country?: string;
     location?: {
         type: "Point";
-        coordinates: [number, number]; // [longitude, latitude] for MongoDB 2dsphere
+        coordinates: [number, number];
     };
 }
 
@@ -26,6 +26,8 @@ export interface User {
     permanentAddress?: Address;
     referralCode?: string;
     referredBy?: Types.ObjectId | null;
+    isWrongReferral: boolean;
+    wrongReferralCode?: string | null;
     fcmTokens?: string[];
     hasHome: boolean;
     hasStay: boolean;

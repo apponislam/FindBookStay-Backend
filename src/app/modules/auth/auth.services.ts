@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import httpStatus from "http-status";
 import ApiError from "../../../errors/ApiError";
 import { jwtHelper } from "../../../utils/jwtHelper";
@@ -30,6 +31,63 @@ const registerUser = async (data: any) => {
         isEmailVerified: false,
     };
 
+    // Verify referral code: if referrer user exists then save referredBy, otherwise save isWrongReferral: true
+    const refInput = data.referredBy || data.referralCode;
+    let resolvedReferrerId: mongoose.Types.ObjectId | null = null;
+    let isWrongReferral = false;
+    let wrongReferralCode: string | null = null;
+
+    if (refInput && typeof refInput === "string" && refInput.trim() !== "") {
+        const rawCode = refInput.trim();
+
+        // 1. If it's a 24-character hexadecimal ObjectId
+        if (mongoose.Types.ObjectId.isValid(rawCode) && rawCode.length === 24) {
+            const referrer = await UserModel.findOne({ _id: new mongoose.Types.ObjectId(rawCode), isDeleted: false });
+            if (referrer) {
+                resolvedReferrerId = referrer._id;
+                isWrongReferral = false;
+            } else {
+                resolvedReferrerId = null;
+                isWrongReferral = true;
+                wrongReferralCode = rawCode;
+            }
+        } else {
+            // 2. Lookup by referral code (e.g. "VMOPEPTW")
+            const normalizedCode = rawCode.toUpperCase();
+            const referrer = await UserModel.findOne({
+                referralCode: normalizedCode,
+                isDeleted: false,
+            });
+
+            if (referrer) {
+                resolvedReferrerId = referrer._id;
+                isWrongReferral = false;
+                console.log(`✅ [Referral Code Verified]: Valid code "${normalizedCode}" by ${referrer.name} (${referrer._id})`);
+            } else {
+                resolvedReferrerId = null;
+                isWrongReferral = true;
+                wrongReferralCode = normalizedCode;
+                console.log(`⚠️ [Wrong Referral Code]: Code "${normalizedCode}" does not exist in system. Stored as isWrongReferral: true`);
+            }
+        }
+    }
+
+    userData.referredBy = resolvedReferrerId;
+    userData.isWrongReferral = isWrongReferral;
+    userData.wrongReferralCode = wrongReferralCode;
+
+    // Clean up address location if coordinates are missing to prevent 2dsphere indexing errors
+    if (userData.presentAddress) {
+        if (!userData.presentAddress.location?.coordinates || !Array.isArray(userData.presentAddress.location.coordinates) || userData.presentAddress.location.coordinates.length < 2) {
+            delete userData.presentAddress.location;
+        }
+    }
+    if (userData.permanentAddress) {
+        if (!userData.permanentAddress.location?.coordinates || !Array.isArray(userData.permanentAddress.location.coordinates) || userData.permanentAddress.location.coordinates.length < 2) {
+            delete userData.permanentAddress.location;
+        }
+    }
+
     const createdUser = await UserModel.create(userData);
 
     // Generate secure verification token and 6-digit OTP code
@@ -37,16 +95,19 @@ const registerUser = async (data: any) => {
     const verificationCode = crypto.randomInt(100000, 999999).toString();
 
     // Store temporary verification data in Redis
-    await authRedis.storeEmailVerification(
-        createdUser.email as string,
-        createdUser._id.toString(),
-        verificationToken,
-        verificationCode
-    );
+    try {
+        await authRedis.storeEmailVerification(
+            createdUser.email as string,
+            createdUser._id.toString(),
+            verificationToken,
+            verificationCode
+        );
 
-    const verificationUrl = `${config.client_url}/verify-email?token=${verificationToken}&email=${createdUser.email}`;
-    sendVerificationEmail(createdUser.email as string, createdUser.name as string, verificationUrl, verificationCode);
-    sendWelcomeEmail(createdUser.email as string, createdUser.name as string);
+        const verificationUrl = `${config.client_url}/verify-email?token=${verificationToken}&email=${createdUser.email}`;
+        await sendVerificationEmail(createdUser.email as string, createdUser.name as string, verificationUrl, verificationCode);
+    } catch (redisOrMailError) {
+        console.error("⚠️ [Register User] Error storing verification in Redis or sending verification email:", redisOrMailError);
+    }
 
     // Generate tokens
     const jwtPayload = {
@@ -117,6 +178,9 @@ const verifyEmail = async (email: string, token?: string, otp?: string) => {
     user.isEmailVerified = true;
     await user.save();
 
+    // Send Welcome Email upon successful verification
+    sendWelcomeEmail(user.email, user.name);
+
     return { message: "Your email has been verified successfully. Welcome to FindBookStay!" };
 };
 
@@ -146,7 +210,7 @@ const resendVerificationEmail = async (email: string) => {
 
     // Send verification email
     const verificationUrl = `${config.client_url}/verify-email?token=${verificationToken}&email=${user.email}`;
-    sendVerificationEmail(user.email as string, user.name as string, verificationUrl, verificationCode);
+    await sendVerificationEmail(user.email as string, user.name as string, verificationUrl, verificationCode);
 
     return { message: "A new verification email has been sent successfully." };
 };

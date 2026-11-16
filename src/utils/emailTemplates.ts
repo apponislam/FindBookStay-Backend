@@ -5,11 +5,13 @@ import config from "../app/config";
 /**
  * Dispatch mail via RESEND or Nodemailer based on environment config
  */
-const sendMail = (to: string | string[], subject: string, html: string, from?: string) => {
+const sendMail = async (to: string | string[], subject: string, html: string, from?: string) => {
     if (config.mail.driver === "RESEND") {
-        sendEmailWithResend({ to, subject, html, from }).catch((error) => {
-            console.error("Resend Email error:", error);
-        });
+        try {
+            await sendEmailWithResend({ to, subject, html, from });
+        } catch (error) {
+            console.error(`❌ [Mail Dispatch Error] Failed to send "${subject}" via Resend:`, error);
+        }
     } else {
         sendNodemailerMail(to, subject, html, from);
     }
@@ -107,42 +109,47 @@ const formatClientUrl = (rawUrl: string): string => {
 /**
  * 1. Email Verification Template
  */
-export const sendVerificationEmail = (email: string, name: string, verificationUrl: string, otp?: string) => {
-    const title = "Verify Your Email Address";
+export const sendVerificationEmail = async (email: string, name: string, verificationUrl: string, otp?: string) => {
+    const title = otp ? `Your Verification Code: ${otp} - FindBookStay` : "Verify Your Email Address - FindBookStay";
     const fullUrl = formatClientUrl(verificationUrl);
     const bodyHtml = `
         <h2 style="color: #073B35; margin-top: 0; margin-bottom: 12px; font-size: 20px; font-weight: 700;">Hello ${name},</h2>
-        <p style="margin-bottom: 24px; color: #64748b;">Thank you for registering on <strong>FindBookStay</strong>. Please verify your email address to get full access to verified home rentals, exclusive hotel stays, sports turfs, and direct property purchases.</p>
+        <p style="margin-bottom: 20px; color: #4b5563; font-size: 15px;">Thank you for registering on <strong>FindBookStay</strong>. Please verify your email address to complete your account setup and explore verified listings.</p>
         
-        <!-- CTA Button -->
-        <div style="text-align: center; margin: 32px 0;">
-            <a href="${fullUrl}" target="_blank" style="background-color: #073B35; color: #ffffff; font-weight: 700; font-size: 15px; text-decoration: none; padding: 14px 32px; border-radius: 12px; display: inline-block; box-shadow: 0 4px 12px rgba(7, 59, 53, 0.25);">
-                Verify Email Address
-            </a>
-        </div>
-
         ${
             otp
                 ? `
-        <!-- OTP Code Box -->
-        <div style="background-color: #f0f5f3; border: 1px dashed #10B981; border-radius: 12px; padding: 20px; text-align: center; margin: 28px 0;">
-            <p style="margin: 0 0 8px 0; color: #073B35; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Or Enter 6-Digit Code In App</p>
-            <div style="font-size: 32px; font-weight: 800; color: #073B35; letter-spacing: 6px;">${otp}</div>
-            <p style="margin: 8px 0 0 0; color: #10B981; font-size: 12px;">This code expires in 10 minutes.</p>
+        <!-- High-Visibility OTP Code Box -->
+        <div style="background-color: #f0fdf4; border: 2px dashed #10B981; border-radius: 12px; padding: 24px; text-align: center; margin: 24px 0;">
+            <p style="margin: 0 0 8px 0; color: #073B35; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;">Your 6-Digit Verification Code</p>
+            <div style="font-size: 38px; font-weight: 800; color: #073B35; letter-spacing: 8px; font-family: 'Courier New', monospace;">${otp}</div>
+            <p style="margin: 10px 0 0 0; color: #059669; font-size: 12px; font-weight: 600;">Valid for the next 10 minutes</p>
         </div>
         `
                 : ""
         }
 
-        <p style="margin-top: 24px; font-size: 13px; color: #64748b;">
+        <!-- CTA Button -->
+        <p style="margin-bottom: 12px; color: #64748b; font-size: 14px; text-align: center;">Or click the button below to verify instantly:</p>
+        <div style="text-align: center; margin: 20px 0;">
+            <a href="${fullUrl}" target="_blank" style="background-color: #073B35; color: #ffffff; font-weight: 700; font-size: 15px; text-decoration: none; padding: 14px 32px; border-radius: 12px; display: inline-block; box-shadow: 0 4px 12px rgba(7, 59, 53, 0.25);">
+                Verify Email Address
+            </a>
+        </div>
+
+        <p style="margin-top: 24px; font-size: 13px; color: #64748b; text-align: center;">
             If the button doesn't work, copy and paste this link into your browser:<br>
             <a href="${fullUrl}" style="color: #10B981; word-break: break-all;">${fullUrl}</a>
         </p>
-        <p style="font-size: 12px; color: #94a3b8; margin-top: 20px;">This verification link expires in 24 hours.</p>
+        <p style="font-size: 12px; color: #94a3b8; margin-top: 20px; text-align: center;">This verification link expires in 24 hours.</p>
     `;
 
-    const html = renderBaseLayout({ preheader: "Verify your email to start using FindBookStay", title, bodyHtml });
-    sendMail(email, title, html);
+    const preheader = otp
+        ? `Your verification code is ${otp}. Valid for 10 minutes.`
+        : "Verify your email to start using FindBookStay";
+
+    const html = renderBaseLayout({ preheader, title, bodyHtml });
+    await sendMail(email, title, html);
 };
 
 /**

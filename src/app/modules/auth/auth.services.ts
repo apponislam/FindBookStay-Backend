@@ -4,6 +4,8 @@ import ApiError from "../../../errors/ApiError";
 import { jwtHelper } from "../../../utils/jwtHelper";
 import config from "../../config";
 import { UserModel } from "./auth.model";
+import { ILiveLocation } from "./auth.interface";
+import { resolveUserAddresses } from "./auth.utils";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
 import {
@@ -31,60 +33,68 @@ const registerUser = async (data: any) => {
         isEmailVerified: false,
     };
 
-    // Verify referral code: if referrer user exists then save referredBy, otherwise save isWrongReferral: true
-    const refInput = data.referredBy || data.referralCode;
+    // Verify referral code: user inputs the 8-character referral code (e.g. "VMOPEPTW")
+    const refCode = data.referralCode || data.referredBy;
     let resolvedReferrerId: mongoose.Types.ObjectId | null = null;
     let isWrongReferral = false;
     let wrongReferralCode: string | null = null;
 
-    if (refInput && typeof refInput === "string" && refInput.trim() !== "") {
-        const rawCode = refInput.trim();
+    if (refCode && typeof refCode === "string" && refCode.trim() !== "") {
+        const normalizedCode = refCode.trim().toUpperCase();
+        const referrer = await UserModel.findOne({
+            referralCode: normalizedCode,
+            isDeleted: false,
+        });
 
-        // 1. If it's a 24-character hexadecimal ObjectId
-        if (mongoose.Types.ObjectId.isValid(rawCode) && rawCode.length === 24) {
-            const referrer = await UserModel.findOne({ _id: new mongoose.Types.ObjectId(rawCode), isDeleted: false });
-            if (referrer) {
-                resolvedReferrerId = referrer._id;
-                isWrongReferral = false;
-            } else {
-                resolvedReferrerId = null;
-                isWrongReferral = true;
-                wrongReferralCode = rawCode;
-            }
+        if (referrer) {
+            resolvedReferrerId = referrer._id;
+            isWrongReferral = false;
+            console.log(`✅ [Referral Code Verified]: Valid code "${normalizedCode}" by ${referrer.name} (${referrer._id})`);
         } else {
-            // 2. Lookup by referral code (e.g. "VMOPEPTW")
-            const normalizedCode = rawCode.toUpperCase();
-            const referrer = await UserModel.findOne({
-                referralCode: normalizedCode,
-                isDeleted: false,
-            });
-
-            if (referrer) {
-                resolvedReferrerId = referrer._id;
-                isWrongReferral = false;
-                console.log(`✅ [Referral Code Verified]: Valid code "${normalizedCode}" by ${referrer.name} (${referrer._id})`);
-            } else {
-                resolvedReferrerId = null;
-                isWrongReferral = true;
-                wrongReferralCode = normalizedCode;
-                console.log(`⚠️ [Wrong Referral Code]: Code "${normalizedCode}" does not exist in system. Stored as isWrongReferral: true`);
-            }
+            resolvedReferrerId = null;
+            isWrongReferral = true;
+            wrongReferralCode = normalizedCode;
+            console.log(`⚠️ [Wrong Referral Code]: Code "${normalizedCode}" does not exist in system. Stored as isWrongReferral: true`);
         }
     }
 
     userData.referredBy = resolvedReferrerId;
     userData.isWrongReferral = isWrongReferral;
     userData.wrongReferralCode = wrongReferralCode;
+    // Remove input referral code so pre-save hook generates this new user's own unique referral code
+    delete userData.referralCode;
 
-    // Clean up address location if coordinates are missing to prevent 2dsphere indexing errors
-    if (userData.presentAddress) {
-        if (!userData.presentAddress.location?.coordinates || !Array.isArray(userData.presentAddress.location.coordinates) || userData.presentAddress.location.coordinates.length < 2) {
-            delete userData.presentAddress.location;
+    // Resolve address locations using geocoding if coordinates not provided
+    // If presentAddress and permanentAddress are the same, geocode only once!
+    if (userData.presentAddress || userData.permanentAddress) {
+        const resolved = await resolveUserAddresses(
+            userData.presentAddress,
+            userData.permanentAddress,
+            data.sameAsPresent
+        );
+        if (resolved.presentAddress) {
+            userData.presentAddress = resolved.presentAddress;
+        } else {
+            delete userData.presentAddress;
+        }
+        if (resolved.permanentAddress) {
+            userData.permanentAddress = resolved.permanentAddress;
+        } else {
+            delete userData.permanentAddress;
         }
     }
-    if (userData.permanentAddress) {
-        if (!userData.permanentAddress.location?.coordinates || !Array.isArray(userData.permanentAddress.location.coordinates) || userData.permanentAddress.location.coordinates.length < 2) {
-            delete userData.permanentAddress.location;
+
+    // Clean up liveLocation if invalid or missing coordinates
+    if (userData.liveLocation) {
+        if (
+            !userData.liveLocation.coordinates ||
+            !Array.isArray(userData.liveLocation.coordinates) ||
+            userData.liveLocation.coordinates.length < 2
+        ) {
+            delete userData.liveLocation;
+        } else {
+            userData.liveLocation.type = "Point";
+            userData.liveLocation.updatedAt = new Date();
         }
     }
 
@@ -326,6 +336,49 @@ const resetPassword = async (token: string, newPassword: string) => {
 };
 
 const updateProfile = async (userId: string, data: any) => {
+    if (data.presentAddress || data.permanentAddress || data.sameAsPresent) {
+        let currentPresent = data.presentAddress;
+        let currentPermanent = data.permanentAddress;
+
+        // If sameAsPresent is true and permanentAddress is not provided, copy presentAddress
+        if (data.sameAsPresent && currentPresent && !currentPermanent) {
+            currentPermanent = { ...currentPresent };
+        }
+
+        const resolved = await resolveUserAddresses(
+            currentPresent,
+            currentPermanent,
+            data.sameAsPresent
+        );
+
+        if (resolved.presentAddress !== undefined) {
+            data.presentAddress = resolved.presentAddress;
+        }
+        if (resolved.permanentAddress !== undefined) {
+            data.permanentAddress = resolved.permanentAddress;
+        }
+    }
+
+    delete data.sameAsPresent;
+
+    // Handle liveLocation if provided in profile update
+    if (data.liveLocation) {
+        if (Array.isArray(data.liveLocation.coordinates) && data.liveLocation.coordinates.length === 2) {
+            data.liveLocation.type = "Point";
+            data.liveLocation.updatedAt = new Date();
+        } else if (data.liveLocation.latitude !== undefined && data.liveLocation.longitude !== undefined) {
+            data.liveLocation = {
+                type: "Point",
+                coordinates: [Number(data.liveLocation.longitude), Number(data.liveLocation.latitude)],
+                updatedAt: new Date(),
+                ...(data.liveLocation.heading !== undefined && { heading: Number(data.liveLocation.heading) }),
+                ...(data.liveLocation.speed !== undefined && { speed: Number(data.liveLocation.speed) }),
+            };
+        } else {
+            delete data.liveLocation;
+        }
+    }
+
     const user = await UserModel.findOneAndUpdate(
         { _id: userId, isDeleted: false },
         { $set: data },
@@ -335,6 +388,80 @@ const updateProfile = async (userId: string, data: any) => {
     if (!user) throw new ApiError(httpStatus.NOT_FOUND, "User account not found or no longer active.");
 
     return user;
+};
+
+/**
+ * Update user's live device location coordinates.
+ * Device coordinates come directly from client GPS/browser navigator.
+ * NO Google Maps or external geocoding API is invoked here.
+ */
+const updateLiveLocation = async (
+    userId: string,
+    payload: {
+        latitude?: number;
+        longitude?: number;
+        lat?: number;
+        lng?: number;
+        coordinates?: [number, number]; // [longitude, latitude]
+        heading?: number;
+        speed?: number;
+    }
+) => {
+    let lat: number | undefined;
+    let lng: number | undefined;
+
+    if (Array.isArray(payload.coordinates) && payload.coordinates.length === 2) {
+        lng = Number(payload.coordinates[0]);
+        lat = Number(payload.coordinates[1]);
+    } else {
+        if (payload.latitude !== undefined) lat = Number(payload.latitude);
+        else if (payload.lat !== undefined) lat = Number(payload.lat);
+
+        if (payload.longitude !== undefined) lng = Number(payload.longitude);
+        else if (payload.lng !== undefined) lng = Number(payload.lng);
+    }
+
+    if (lat === undefined || lng === undefined || isNaN(lat) || isNaN(lng)) {
+        throw new ApiError(httpStatus.BAD_REQUEST, "Valid latitude and longitude coordinates are required.");
+    }
+
+    if (lat < -90 || lat > 90) {
+        throw new ApiError(httpStatus.BAD_REQUEST, "Latitude must be between -90 and 90.");
+    }
+    if (lng < -180 || lng > 180) {
+        throw new ApiError(httpStatus.BAD_REQUEST, "Longitude must be between -180 and 180.");
+    }
+
+    const liveLocation: ILiveLocation = {
+        type: "Point",
+        coordinates: [lng, lat],
+        updatedAt: new Date(),
+        ...(payload.heading !== undefined && !isNaN(Number(payload.heading)) && { heading: Number(payload.heading) }),
+        ...(payload.speed !== undefined && !isNaN(Number(payload.speed)) && { speed: Number(payload.speed) }),
+    };
+
+    const user = await UserModel.findOneAndUpdate(
+        { _id: userId, isDeleted: false },
+        { $set: { liveLocation } },
+        { returnDocument: "after", runValidators: true }
+    ).select("-password");
+
+    if (!user) {
+        throw new ApiError(httpStatus.NOT_FOUND, "User account not found or no longer active.");
+    }
+
+    return {
+        liveLocation: user.liveLocation,
+        user,
+    };
+};
+
+const getLiveLocation = async (userId: string) => {
+    const user = await UserModel.findOne({ _id: userId, isDeleted: false }).select("liveLocation name email");
+    if (!user) {
+        throw new ApiError(httpStatus.NOT_FOUND, "User account not found or no longer active.");
+    }
+    return user.liveLocation || null;
 };
 
 const changePassword = async (userId: string, currentPassword: string, newPassword: string) => {
@@ -534,4 +661,7 @@ export const authServices = {
     validateReferralCode,
     addFcmToken,
     removeFcmToken,
+    updateLiveLocation,
+    getLiveLocation,
+    resolveUserAddresses,
 };

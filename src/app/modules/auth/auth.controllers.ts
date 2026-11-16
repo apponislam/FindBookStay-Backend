@@ -7,13 +7,29 @@ import { Request, Response } from "express";
 import { authServices } from "./auth.services";
 import { activityLogServices } from "../activityLog/activityLog.services";
 
+const parseIfString = (val: any) => {
+    if (typeof val === "string") {
+        try {
+            return JSON.parse(val);
+        } catch {
+            return val;
+        }
+    }
+    return val;
+};
+
 const register = catchAsync(async (req: Request, res: Response) => {
     console.log("📥 [Register Request Body]:", JSON.stringify(req.body, null, 2));
 
     const data = req.body;
 
-    // Capture referral input from either referredBy or referralCode
-    const referralInput = data.referredBy || data.referralCode;
+    // Capture referral input from either referralCode or referredBy
+    const referralInput = data.referralCode || data.referredBy;
+
+    const presentAddress = parseIfString(data.presentAddress);
+    const permanentAddress = parseIfString(data.permanentAddress);
+    const liveLocation = parseIfString(data.liveLocation);
+    const sameAsPresent = data.sameAsPresent === true || data.sameAsPresent === "true";
 
     // Parse JSON fields
     const userData: any = {
@@ -22,18 +38,21 @@ const register = catchAsync(async (req: Request, res: Response) => {
         password: data.password,
         role: data.role,
         phone: data.phone,
-        profileImage: data.profileImage,
-        presentAddress: data.presentAddress,
-        permanentAddress: data.permanentAddress,
-        referredBy: referralInput,
+        profileImage: req.file?.path || data.profileImage,
+        presentAddress,
+        permanentAddress,
+        sameAsPresent,
+        liveLocation,
+        referralCode: referralInput,
     };
 
     // Clean up empty optional fields so MongoDB / Mongoose casting doesn't fail
-    if (!userData.referredBy) delete userData.referredBy;
+    if (!userData.referralCode) delete userData.referralCode;
     if (!userData.presentAddress) delete userData.presentAddress;
     if (!userData.permanentAddress) delete userData.permanentAddress;
     if (!userData.phone) delete userData.phone;
     if (!userData.profileImage) delete userData.profileImage;
+    if (!userData.liveLocation) delete userData.liveLocation;
 
     // Basic validation
     if (!userData.name || !userData.email || !userData.password) {
@@ -233,16 +252,22 @@ const resetPassword = catchAsync(async (req: Request, res: Response) => {
 
 const updateProfile = catchAsync(async (req: Request, res: Response) => {
     const data = req.body;
+    const presentAddress = parseIfString(data.presentAddress);
+    const permanentAddress = parseIfString(data.permanentAddress);
+    const liveLocation = parseIfString(data.liveLocation);
+    const sameAsPresent = data.sameAsPresent === true || data.sameAsPresent === "true";
 
     // Construct update data based on the provided fields
     const updateData: any = {
         ...(data.name !== undefined && { name: data.name }),
         ...(data.phone !== undefined && { phone: data.phone }),
-        ...(data.profileImage !== undefined && { profileImage: data.profileImage }),
+        ...((req.file?.path || data.profileImage !== undefined) && { profileImage: req.file?.path || data.profileImage }),
         ...(data.language !== undefined && { language: data.language }),
-        ...(data.presentAddress !== undefined && { presentAddress: data.presentAddress }),
-        ...(data.permanentAddress !== undefined && { permanentAddress: data.permanentAddress }),
-        ...(data.fcmTokens !== undefined && { fcmTokens: data.fcmTokens }),
+        ...(presentAddress !== undefined && { presentAddress }),
+        ...(permanentAddress !== undefined && { permanentAddress }),
+        ...(sameAsPresent && { sameAsPresent }),
+        ...(liveLocation !== undefined && { liveLocation }),
+        ...(data.fcmTokens !== undefined && { fcmTokens: parseIfString(data.fcmTokens) }),
         ...(data.hasHome !== undefined && { hasHome: data.hasHome }),
         ...(data.hasStay !== undefined && { hasStay: data.hasStay }),
         ...(data.hasTurf !== undefined && { hasTurf: data.hasTurf }),
@@ -376,6 +401,40 @@ const removeFcmToken = catchAsync(async (req: Request, res: Response) => {
     });
 });
 
+const updateLiveLocation = catchAsync(async (req: Request, res: Response) => {
+    const result = await authServices.updateLiveLocation(req.user._id, req.body);
+
+    activityLogServices.createActivityLog({
+        user: req.user._id,
+        role: req.user.role,
+        action: "LIVE_LOCATION_UPDATE",
+        module: "USER",
+        description: `Live location coordinates updated for user ${req.user.name || req.user._id}`,
+        status: "SUCCESS",
+        ipAddress: req.ip || (req.headers["x-forwarded-for"] as string),
+        userAgent: req.headers["user-agent"],
+        metadata: { coordinates: result.liveLocation?.coordinates },
+    });
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Live device location coordinates saved successfully.",
+        data: result,
+    });
+});
+
+const getLiveLocation = catchAsync(async (req: Request, res: Response) => {
+    const result = await authServices.getLiveLocation(req.user._id);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Live location retrieved successfully.",
+        data: result,
+    });
+});
+
 export const authControllers = {
     register,
     login,
@@ -397,4 +456,6 @@ export const authControllers = {
     validateReferralCode,
     addFcmToken,
     removeFcmToken,
+    updateLiveLocation,
+    getLiveLocation,
 };

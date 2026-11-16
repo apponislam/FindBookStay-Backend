@@ -10,8 +10,16 @@ export interface Address {
     country?: string;
     location?: {
         type: "Point";
-        coordinates: [number, number];
+        coordinates: [number, number]; // [longitude, latitude]
     };
+}
+
+export interface ILiveLocation {
+    type: "Point";
+    coordinates: [number, number]; // [longitude, latitude]
+    updatedAt?: Date;
+    heading?: number; // Device compass direction in degrees (0 - 360)
+    speed?: number; // Speed in m/s
 }
 
 export interface User {
@@ -24,6 +32,7 @@ export interface User {
     language?: string;
     presentAddress?: Address;
     permanentAddress?: Address;
+    liveLocation?: ILiveLocation;
     referralCode?: string;
     referredBy?: Types.ObjectId | null;
     isWrongReferral: boolean;

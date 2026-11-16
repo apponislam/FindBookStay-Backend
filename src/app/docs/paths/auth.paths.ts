@@ -421,6 +421,71 @@ export const authPaths = {
             },
         },
     },
+    "/auth/live-location": {
+        get: {
+            tags: ["User Profile"],
+            summary: "Get current live GPS location coordinates",
+            description: "Retrieves the user's latest saved live device coordinates without invoking external mapping services.",
+            security: [{ bearerAuth: [] }],
+            responses: {
+                200: {
+                    description: "Live location retrieved successfully.",
+                    content: {
+                        "application/json": {
+                            schema: {
+                                type: "object",
+                                properties: {
+                                    success: { type: "boolean", example: true },
+                                    message: { type: "string", example: "Live location retrieved successfully." },
+                                    data: { $ref: "#/components/schemas/LiveLocation" },
+                                },
+                            },
+                        },
+                    },
+                },
+                401: { description: "Unauthorized." },
+            },
+        },
+        patch: {
+            tags: ["User Profile"],
+            summary: "Update live device GPS coordinates",
+            description: "Receives raw GPS coordinates from frontend device. Stores coordinates directly to MongoDB 2dsphere index without any external geocoding or Google Maps API calls.",
+            security: [{ bearerAuth: [] }],
+            requestBody: {
+                required: true,
+                content: {
+                    "application/json": {
+                        schema: { $ref: "#/components/schemas/UpdateLiveLocationRequest" },
+                    },
+                },
+            },
+            responses: {
+                200: {
+                    description: "Live device location coordinates saved successfully.",
+                    content: {
+                        "application/json": {
+                            schema: {
+                                type: "object",
+                                properties: {
+                                    success: { type: "boolean", example: true },
+                                    message: { type: "string", example: "Live device location coordinates saved successfully." },
+                                    data: {
+                                        type: "object",
+                                        properties: {
+                                            liveLocation: { $ref: "#/components/schemas/LiveLocation" },
+                                            user: { $ref: "#/components/schemas/User" },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+                400: { description: "Invalid latitude or longitude values." },
+                401: { description: "Unauthorized." },
+            },
+        },
+    },
     "/auth/change-password": {
         post: {
             tags: ["User Profile"],

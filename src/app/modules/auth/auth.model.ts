@@ -64,6 +64,21 @@ const userSchemaDefinition: any = {
     presentAddress: addressSchemaDefinition,
     permanentAddress: addressSchemaDefinition,
 
+    liveLocation: {
+        type: {
+            type: String,
+            enum: ["Point"],
+        },
+        coordinates: {
+            type: [Number], // [longitude, latitude]
+        },
+        updatedAt: {
+            type: Date,
+        },
+        heading: Number,
+        speed: Number,
+    },
+
     referralCode: {
         type: String,
         trim: true,
@@ -176,6 +191,7 @@ UserSchema.index({ isActive: 1, isDeleted: 1 });
 UserSchema.index({ isEmailVerified: 1, isDeleted: 1 });
 UserSchema.index({ "presentAddress.location": "2dsphere" });
 UserSchema.index({ "permanentAddress.location": "2dsphere" });
+UserSchema.index({ liveLocation: "2dsphere" }, { sparse: true });
 
 // Referral indexes
 UserSchema.index({ referralCode: 1 }, { unique: true, sparse: true });

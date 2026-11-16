@@ -21,6 +21,21 @@ export const authSchemas = {
             },
         },
     },
+    LiveLocation: {
+        type: "object",
+        properties: {
+            type: { type: "string", enum: ["Point"], example: "Point" },
+            coordinates: {
+                type: "array",
+                items: { type: "number" },
+                example: [90.4125, 23.8103],
+                description: "[longitude, latitude] device GPS coordinates",
+            },
+            updatedAt: { type: "string", format: "date-time" },
+            heading: { type: "number", example: 180, description: "Compass heading in degrees (0-360)" },
+            speed: { type: "number", example: 2.5, description: "Device ground speed in m/s" },
+        },
+    },
     User: {
         type: "object",
         properties: {
@@ -33,6 +48,7 @@ export const authSchemas = {
             language: { type: "string", example: "en" },
             presentAddress: { $ref: "#/components/schemas/UserAddress" },
             permanentAddress: { $ref: "#/components/schemas/UserAddress" },
+            liveLocation: { $ref: "#/components/schemas/LiveLocation" },
             referralCode: { type: "string", example: "VMOPEPTW" },
             referredBy: { type: "string", nullable: true, example: null },
             isWrongReferral: { type: "boolean", example: false },
@@ -153,6 +169,24 @@ export const authSchemas = {
         required: ["fcmToken"],
         properties: {
             fcmToken: { type: "string", example: "fcm_token_device_abc123" },
+        },
+    },
+    UpdateLiveLocationRequest: {
+        type: "object",
+        description: "Payload for device live GPS updates. Accepts either lat/latitude and lng/longitude, or coordinates: [longitude, latitude]. Saved directly to user document without external geocoding.",
+        properties: {
+            latitude: { type: "number", example: 23.8103, description: "Latitude (-90 to 90)" },
+            longitude: { type: "number", example: 90.4125, description: "Longitude (-180 to 180)" },
+            lat: { type: "number", example: 23.8103 },
+            lng: { type: "number", example: 90.4125 },
+            coordinates: {
+                type: "array",
+                items: { type: "number" },
+                example: [90.4125, 23.8103],
+                description: "[longitude, latitude]",
+            },
+            heading: { type: "number", example: 180, description: "Compass bearing degrees (0 - 360)" },
+            speed: { type: "number", example: 3.2, description: "Ground speed in m/s" },
         },
     },
 };

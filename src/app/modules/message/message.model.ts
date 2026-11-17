@@ -23,7 +23,7 @@ const MessageSchema = new Schema<IMessage>(
         },
         messageType: {
             type: String,
-            enum: ["TEXT", "IMAGE", "LOCATION"],
+            enum: ["TEXT", "IMAGE"],
             default: "TEXT",
         },
         text: {
@@ -34,11 +34,6 @@ const MessageSchema = new Schema<IMessage>(
         attachments: {
             type: [String],
             default: [],
-        },
-        location: {
-            latitude: Number,
-            longitude: Number,
-            addressName: String,
         },
         isRead: {
             type: Boolean,

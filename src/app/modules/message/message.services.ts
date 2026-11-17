@@ -13,14 +13,9 @@ const sendMessage = async (
         conversationId?: string;
         recipientId?: string;
         listingId?: string;
-        messageType?: "TEXT" | "IMAGE" | "FILE" | "LOCATION";
+        messageType?: "TEXT" | "IMAGE";
         text?: string;
         attachments?: string[];
-        location?: {
-            latitude: number;
-            longitude: number;
-            addressName?: string;
-        };
     },
 ) => {
     let conversation: any = null;
@@ -59,8 +54,6 @@ const sendMessage = async (
     let previewText = payload.text?.trim() || "";
     if (!previewText) {
         if (payload.messageType === "IMAGE") previewText = "📷 Photo";
-        else if (payload.messageType === "LOCATION") previewText = "📍 Shared location";
-        else if (payload.messageType === "FILE") previewText = "📎 Shared file";
         else previewText = "New message";
     }
 
@@ -71,7 +64,6 @@ const sendMessage = async (
         messageType: payload.messageType || "TEXT",
         text: payload.text?.trim() || "",
         attachments: payload.attachments || [],
-        location: payload.location,
         status: "SENT",
         isRead: false,
     });

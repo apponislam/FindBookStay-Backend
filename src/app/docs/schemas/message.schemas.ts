@@ -19,7 +19,7 @@ export const messageSchemas = {
             },
             messageType: {
                 type: "string",
-                enum: ["TEXT", "IMAGE", "FILE", "LOCATION"],
+                enum: ["TEXT", "IMAGE"],
                 default: "TEXT",
             },
             text: {
@@ -30,15 +30,7 @@ export const messageSchemas = {
                 type: "array",
                 items: { type: "string" },
                 example: ["/uploads/messages/messages-1731718800000-1.webp"],
-                description: "Uploaded image or file URLs (also supports multipart form-data upload)",
-            },
-            location: {
-                type: "object",
-                properties: {
-                    latitude: { type: "number", example: 23.8103 },
-                    longitude: { type: "number", example: 90.4125 },
-                    addressName: { type: "string", example: "Banani Road 11, Dhaka" },
-                },
+                description: "Uploaded image URLs (also supports multipart form-data upload)",
             },
         },
     },
@@ -69,7 +61,7 @@ export const messageSchemas = {
             },
             messageType: {
                 type: "string",
-                enum: ["TEXT", "IMAGE", "FILE", "LOCATION"],
+                enum: ["TEXT", "IMAGE"],
                 example: "TEXT",
             },
             text: { type: "string", example: "Hello! Is this stay available for this weekend?" },
@@ -77,14 +69,6 @@ export const messageSchemas = {
                 type: "array",
                 items: { type: "string" },
                 example: [],
-            },
-            location: {
-                type: "object",
-                properties: {
-                    latitude: { type: "number", example: 23.8103 },
-                    longitude: { type: "number", example: 90.4125 },
-                    addressName: { type: "string", example: "Banani, Dhaka" },
-                },
             },
             isRead: { type: "boolean", example: false },
             readAt: { type: "string", format: "date-time", nullable: true },

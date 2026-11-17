@@ -407,12 +407,6 @@ export const uploadMessageAttachments = (req: Request, res: Response, next: Next
             } catch {}
         }
 
-        if (req.body && typeof req.body.location === "string") {
-            try {
-                req.body.location = JSON.parse(req.body.location);
-            } catch {}
-        }
-
         const uploadedList: string[] = [];
         const filesMap = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
 

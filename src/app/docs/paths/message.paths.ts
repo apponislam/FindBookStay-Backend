@@ -3,7 +3,7 @@ export const messagePaths = {
         post: {
             tags: ["Chat & Messaging (Messages)"],
             summary: "Send a new message",
-            description: "Sends a real-time message (text, photos, files, or location). Emits instant Socket.IO events to the conversation room and recipient user room.",
+            description: "Sends a real-time message (text or photos). Emits instant Socket.IO events to the conversation room and recipient user room.",
             security: [{ bearerAuth: [] }],
             requestBody: {
                 required: true,

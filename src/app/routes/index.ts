@@ -12,6 +12,7 @@ import { conversationRoutes } from "../modules/conversation/conversation.routes"
 import { messageRoutes } from "../modules/message/message.routes";
 import { settingsRoutes } from "../modules/settings/settings.routes";
 import { siteSettingsRoutes } from "../modules/siteSettings/siteSettings.routes";
+import { notificationRoutes } from "../modules/notification/notification.routes";
 import { swaggerRouter } from "../docs/swagger";
 
 const router = express.Router();
@@ -68,6 +69,10 @@ const moduleRoutes = [
     {
         path: "/site-settings",
         route: siteSettingsRoutes,
+    },
+    {
+        path: "/notifications",
+        route: notificationRoutes,
     },
     {
         path: "/docs",

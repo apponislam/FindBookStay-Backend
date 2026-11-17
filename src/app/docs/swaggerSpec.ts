@@ -12,6 +12,7 @@ import { conversationSchemas } from "./schemas/conversation.schemas";
 import { messageSchemas } from "./schemas/message.schemas";
 import { settingsSchemas } from "./schemas/settings.schemas";
 import { siteSettingsSchemas } from "./schemas/siteSettings.schemas";
+import { notificationSchemas } from "./schemas/notification.schemas";
 
 import { authPaths } from "./paths/auth.paths";
 import { listingPaths } from "./paths/listing.paths";
@@ -26,6 +27,7 @@ import { conversationPaths } from "./paths/conversation.paths";
 import { messagePaths } from "./paths/message.paths";
 import { settingsPaths } from "./paths/settings.paths";
 import { siteSettingsPaths } from "./paths/siteSettings.paths";
+import { notificationPaths } from "./paths/notification.paths";
 
 export const swaggerSpec = {
     openapi: "3.0.3",
@@ -133,6 +135,14 @@ export const swaggerSpec = {
             name: "Site Settings (Admin Only)",
             description: "Platform-wide administration: business rules (commission rate, advance hours), logo/favicon uploads, and maintenance mode",
         },
+        {
+            name: "In-App Notifications",
+            description: "User in-app notifications, unread badge counts, real-time Socket.IO alerts, and read receipt toggles",
+        },
+        {
+            name: "In-App Notifications (Admin Only)",
+            description: "Admin custom notification dispatcher and role-targeted broadcast system",
+        },
     ],
     components: {
         securitySchemes: {
@@ -158,6 +168,7 @@ export const swaggerSpec = {
             ...messageSchemas,
             ...settingsSchemas,
             ...siteSettingsSchemas,
+            ...notificationSchemas,
         },
     },
     paths: {
@@ -174,5 +185,6 @@ export const swaggerSpec = {
         ...messagePaths,
         ...settingsPaths,
         ...siteSettingsPaths,
+        ...notificationPaths,
     },
 };

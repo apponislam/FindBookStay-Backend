@@ -10,6 +10,8 @@ import { policyRoutes } from "../modules/policy/policy.routes";
 import { visitorRoutes } from "../modules/visitor/visitor.routes";
 import { conversationRoutes } from "../modules/conversation/conversation.routes";
 import { messageRoutes } from "../modules/message/message.routes";
+import { settingsRoutes } from "../modules/settings/settings.routes";
+import { siteSettingsRoutes } from "../modules/siteSettings/siteSettings.routes";
 import { swaggerRouter } from "../docs/swagger";
 
 const router = express.Router();
@@ -58,6 +60,14 @@ const moduleRoutes = [
     {
         path: "/messages",
         route: messageRoutes,
+    },
+    {
+        path: "/settings",
+        route: settingsRoutes,
+    },
+    {
+        path: "/site-settings",
+        route: siteSettingsRoutes,
     },
     {
         path: "/docs",

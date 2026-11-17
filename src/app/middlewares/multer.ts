@@ -445,3 +445,60 @@ export const uploadMessageAttachments = (req: Request, res: Response, next: Next
     });
 };
 
+/**
+ * Site Settings Assets (Logo & Favicon) Upload Middleware
+ */
+export const uploadSiteAssets = (req: Request, res: Response, next: NextFunction): void => {
+    const upload = uploadMemory.fields([
+        { name: "logo", maxCount: 1 },
+        { name: "siteLogo", maxCount: 1 },
+        { name: "favicon", maxCount: 1 },
+        { name: "siteFavicon", maxCount: 1 },
+    ]);
+
+    upload(req, res, async (err: any) => {
+        if (err) return next(err);
+
+        // Safe JSON parsing for multipart form-data
+        if (req.body && typeof req.body.data === "string") {
+            try {
+                const parsed = JSON.parse(req.body.data);
+                req.body = { ...parsed, ...req.body };
+            } catch {}
+        }
+
+        const filesMap = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
+
+        try {
+            if (filesMap) {
+                const logoFile = filesMap["logo"]?.[0] || filesMap["siteLogo"]?.[0];
+                if (logoFile) {
+                    const optimizedLogo = await optimizeBuffer(logoFile.buffer, "site", {
+                        maxWidth: 800,
+                        maxHeight: 400,
+                        quality: 90,
+                        format: "webp",
+                    });
+                    req.body.siteLogo = optimizedLogo.relativePath;
+                }
+
+                const faviconFile = filesMap["favicon"]?.[0] || filesMap["siteFavicon"]?.[0];
+                if (faviconFile) {
+                    const optimizedFavicon = await optimizeBuffer(faviconFile.buffer, "site", {
+                        maxWidth: 128,
+                        maxHeight: 128,
+                        quality: 90,
+                        format: "webp",
+                    });
+                    req.body.siteFavicon = optimizedFavicon.relativePath;
+                }
+            }
+        } catch (sharpErr) {
+            console.error("❌ [Sharp Site Assets Error]:", sharpErr);
+            return next(new ApiError(httpStatus.BAD_REQUEST, "Failed to optimize uploaded site assets."));
+        }
+
+        next();
+    });
+};
+

@@ -9,14 +9,18 @@ const trackVisitor = catchAsync(async (req: Request, res: Response) => {
     const userAgent = req.headers["user-agent"] || "";
     const userId = req.user?._id ? req.user._id.toString() : null;
 
-    // Optional incoming visitorId from body or cookies; if omitted, generated in Visitor model pre("save") hook
+    // Optional incoming visitorId from body, custom header (mobile apps), or cookies (web browsers)
     const incomingVisitorId =
         (req.body.visitorId && typeof req.body.visitorId === "string" && req.body.visitorId.trim()) ||
+        (req.headers["x-visitor-id"] as string) ||
         req.cookies?.visitorId ||
         undefined;
 
+    const platformHeader = ((req.headers["x-platform"] || req.headers["x-client-platform"]) as string | undefined)?.toUpperCase();
+
     const result = await visitorServices.trackVisitor({
         ...req.body,
+        ...(platformHeader && !req.body.platform && { platform: platformHeader }),
         visitorId: incomingVisitorId,
         ipAddress: rawIp,
         userAgent,

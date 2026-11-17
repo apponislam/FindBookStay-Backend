@@ -1,50 +1,75 @@
 import mongoose from "mongoose";
 import httpStatus from "http-status";
 import ApiError from "../../../errors/ApiError";
-import { DeviceType, IVisitor } from "./visitor.interface";
+import { ClientPlatform, DeviceType, IVisitor } from "./visitor.interface";
 import { VisitorModel } from "./visitor.model";
 
-const parseUserAgent = (userAgent?: string): { browser: string; os: string; device: DeviceType } => {
-    if (!userAgent) {
-        return { browser: "Unknown", os: "Unknown", device: "Desktop" };
+const parseUserAgent = (
+    userAgent?: string,
+    explicitPlatform?: ClientPlatform,
+): { browser: string; os: string; device: DeviceType; platform: ClientPlatform } => {
+    if (!userAgent && !explicitPlatform) {
+        return { browser: "Unknown", os: "Unknown", device: "Desktop", platform: "WEB" };
     }
 
+    const ua = userAgent || "";
     let browser = "Unknown";
     let os = "Unknown";
     let device: DeviceType = "Desktop";
+    let platform: ClientPlatform = explicitPlatform || "WEB";
+
+    // Detect mobile apps or frameworks in UA (e.g. Flutter, React Native, Dart, OkHttp, CFNetwork, Alamofire)
+    const isAppUA = /dart|okhttp|cfnetwork|alamofire|expo|reactnative|flutter|findbookstayapp/i.test(ua);
 
     // Device detection
-    if (/tablet|ipad|playbook|silk/i.test(userAgent)) {
+    if (/tablet|ipad|playbook|silk/i.test(ua)) {
         device = "Tablet";
-    } else if (/mobile|iphone|ipod|android|blackberry|opera mini|iemobile|wpdesktop/i.test(userAgent)) {
+    } else if (/mobile|iphone|ipod|android|blackberry|opera mini|iemobile|wpdesktop/i.test(ua) || isAppUA) {
         device = "Mobile";
     }
 
     // OS detection
-    if (/windows nt 10/i.test(userAgent)) os = "Windows 10/11";
-    else if (/windows nt 6.3/i.test(userAgent)) os = "Windows 8.1";
-    else if (/windows nt 6.2/i.test(userAgent)) os = "Windows 8";
-    else if (/windows nt 6.1/i.test(userAgent)) os = "Windows 7";
-    else if (/windows/i.test(userAgent)) os = "Windows";
-    else if (/macintosh|mac os x/i.test(userAgent)) os = "macOS";
-    else if (/iphone|ipad|ipod/i.test(userAgent)) os = "iOS";
-    else if (/android/i.test(userAgent)) os = "Android";
-    else if (/linux/i.test(userAgent)) os = "Linux";
+    if (/iphone|ipad|ipod/i.test(ua)) {
+        os = "iOS";
+        if (!explicitPlatform) platform = isAppUA ? "IOS" : "WEB";
+    } else if (/android/i.test(ua)) {
+        os = "Android";
+        if (!explicitPlatform) platform = isAppUA ? "ANDROID" : "WEB";
+    } else if (/windows nt 10/i.test(ua)) os = "Windows 10/11";
+    else if (/windows nt 6.3/i.test(ua)) os = "Windows 8.1";
+    else if (/windows nt 6.2/i.test(ua)) os = "Windows 8";
+    else if (/windows nt 6.1/i.test(ua)) os = "Windows 7";
+    else if (/windows/i.test(ua)) os = "Windows";
+    else if (/macintosh|mac os x/i.test(ua)) os = "macOS";
+    else if (/linux/i.test(ua)) os = "Linux";
 
-    // Browser detection
-    if (/edg/i.test(userAgent)) browser = "Edge";
-    else if (/chrome|crios/i.test(userAgent) && !/opr|opera/i.test(userAgent)) browser = "Chrome";
-    else if (/firefox|fxios/i.test(userAgent)) browser = "Firefox";
-    else if (/safari/i.test(userAgent) && !/chrome|crios/i.test(userAgent)) browser = "Safari";
-    else if (/opr|opera/i.test(userAgent)) browser = "Opera";
-    else if (/msie|trident/i.test(userAgent)) browser = "Internet Explorer";
+    // Browser detection (for Web clients)
+    if (isAppUA || explicitPlatform === "APP" || explicitPlatform === "ANDROID" || explicitPlatform === "IOS") {
+        browser = "Mobile App";
+        if (!explicitPlatform) platform = "APP";
+    } else {
+        if (/edg/i.test(ua)) browser = "Edge";
+        else if (/chrome|crios/i.test(ua) && !/opr|opera/i.test(ua)) browser = "Chrome";
+        else if (/firefox|fxios/i.test(ua)) browser = "Firefox";
+        else if (/safari/i.test(ua) && !/chrome|crios/i.test(ua)) browser = "Safari";
+        else if (/opr|opera/i.test(ua)) browser = "Opera";
+        else if (/msie|trident/i.test(ua)) browser = "Internet Explorer";
+    }
 
-    return { browser, os, device };
+    return { browser, os, device, platform };
 };
 
 const trackVisitor = async (payload: {
     visitorId?: string;
+    platform?: ClientPlatform;
+    device?: DeviceType;
+    deviceModel?: string;
+    deviceBrand?: string;
+    appVersion?: string;
+    buildNumber?: string;
+    fcmToken?: string;
     currentPath?: string;
+    currentScreen?: string;
     referrer?: string;
     country?: string;
     city?: string;
@@ -54,13 +79,42 @@ const trackVisitor = async (payload: {
     userAgent?: string;
     userId?: string | null;
 }) => {
-    const { visitorId, currentPath = "/", referrer = "direct", country, city, region, metadata, ipAddress, userAgent, userId } = payload;
+    const {
+        visitorId,
+        platform: explicitPlatform,
+        device: explicitDevice,
+        deviceModel,
+        deviceBrand,
+        appVersion,
+        buildNumber,
+        fcmToken,
+        currentPath = "/",
+        currentScreen,
+        referrer = "direct",
+        country,
+        city,
+        region,
+        metadata,
+        ipAddress,
+        userAgent,
+        userId,
+    } = payload;
 
-    const parsedUA = parseUserAgent(userAgent);
+    const parsedUA = parseUserAgent(userAgent, explicitPlatform);
+
+    // Resolve final platform and device
+    let finalPlatform: ClientPlatform = explicitPlatform || parsedUA.platform;
+    if (!explicitPlatform && (appVersion || deviceModel || currentScreen)) {
+        finalPlatform = parsedUA.os === "iOS" ? "IOS" : parsedUA.os === "Android" ? "ANDROID" : "APP";
+    }
+
+    const finalDevice: DeviceType = explicitDevice || (finalPlatform !== "WEB" ? (parsedUA.device === "Tablet" ? "Tablet" : "Mobile") : parsedUA.device);
+    const finalBrowser = finalPlatform !== "WEB" && parsedUA.browser === "Unknown" ? "Mobile App" : parsedUA.browser;
 
     const now = new Date();
     const sessionItem = {
-        path: currentPath,
+        path: currentPath || currentScreen || "/",
+        screenName: currentScreen,
         referrer,
         timestamp: now,
     };
@@ -79,12 +133,19 @@ const trackVisitor = async (payload: {
             $set: {
                 lastVisit: now,
                 currentPath,
+                currentScreen: currentScreen || existingVisitor.currentScreen,
                 referrer,
                 ipAddress: ipAddress || existingVisitor.ipAddress,
                 userAgent: userAgent || existingVisitor.userAgent,
-                device: parsedUA.device,
-                browser: parsedUA.browser !== "Unknown" ? parsedUA.browser : existingVisitor.browser,
+                platform: finalPlatform,
+                device: finalDevice,
+                browser: finalBrowser !== "Unknown" ? finalBrowser : existingVisitor.browser,
                 os: parsedUA.os !== "Unknown" ? parsedUA.os : existingVisitor.os,
+                ...(deviceModel && { deviceModel }),
+                ...(deviceBrand && { deviceBrand }),
+                ...(appVersion && { appVersion }),
+                ...(buildNumber && { buildNumber }),
+                ...(fcmToken && { fcmToken }),
                 ...(country && { country }),
                 ...(city && { city }),
                 ...(region && { region }),
@@ -111,13 +172,20 @@ const trackVisitor = async (payload: {
             user: userObjectId,
             ipAddress,
             userAgent,
-            device: parsedUA.device,
-            browser: parsedUA.browser,
+            platform: finalPlatform,
+            device: finalDevice,
+            browser: finalBrowser,
             os: parsedUA.os,
+            deviceModel: deviceModel || null,
+            deviceBrand: deviceBrand || null,
+            appVersion: appVersion || null,
+            buildNumber: buildNumber || null,
+            fcmToken: fcmToken || null,
             country: country || "Unknown",
             city: city || "Unknown",
             region: region || "Unknown",
             currentPath,
+            currentScreen: currentScreen || null,
             referrer,
             visitCount: 1,
             firstVisit: now,
@@ -136,14 +204,28 @@ const trackVisitor = async (payload: {
 };
 
 const getAllVisitors = async (query: Record<string, any>) => {
-    const { search, device, browser, os, country, city, isUser, startDate, endDate, page = 1, limit = 10, sortBy = "lastVisit", sortOrder = "desc" } = query;
+    const { search, platform, device, browser, os, country, city, isUser, startDate, endDate, page = 1, limit = 10, sortBy = "lastVisit", sortOrder = "desc" } = query;
 
     const filter: any = {};
 
-    // Search query: visitorId, ipAddress, currentPath, browser, os, country, city
+    // Search query: visitorId, ipAddress, currentPath, currentScreen, deviceModel, browser, os, country, city
     if (search && typeof search === "string" && search.trim() !== "") {
         const searchRegex = new RegExp(search.trim(), "i");
-        filter.$or = [{ visitorId: searchRegex }, { ipAddress: searchRegex }, { currentPath: searchRegex }, { browser: searchRegex }, { os: searchRegex }, { country: searchRegex }, { city: searchRegex }];
+        filter.$or = [
+            { visitorId: searchRegex },
+            { ipAddress: searchRegex },
+            { currentPath: searchRegex },
+            { currentScreen: searchRegex },
+            { deviceModel: searchRegex },
+            { browser: searchRegex },
+            { os: searchRegex },
+            { country: searchRegex },
+            { city: searchRegex },
+        ];
+    }
+
+    if (platform && typeof platform === "string") {
+        filter.platform = platform.toUpperCase();
     }
 
     if (device && typeof device === "string") {
@@ -231,7 +313,7 @@ const getVisitorAnalytics = async (query: Record<string, any> = {}) => {
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-    const [totalVisitors, todayVisitors, thisWeekVisitors, thisMonthVisitors, registeredCount, guestsCount, totalVisitsAgg, deviceAgg, browserAgg, topPagesAgg, topCountriesAgg] = await Promise.all([
+    const [totalVisitors, todayVisitors, thisWeekVisitors, thisMonthVisitors, registeredCount, guestsCount, totalVisitsAgg, platformAgg, deviceAgg, browserAgg, topPagesAgg, topCountriesAgg] = await Promise.all([
         VisitorModel.countDocuments(),
         VisitorModel.countDocuments({ lastVisit: { $gte: startOfToday } }),
         VisitorModel.countDocuments({ lastVisit: { $gte: sevenDaysAgo } }),
@@ -239,6 +321,7 @@ const getVisitorAnalytics = async (query: Record<string, any> = {}) => {
         VisitorModel.countDocuments({ user: { $ne: null } }),
         VisitorModel.countDocuments({ user: null }),
         VisitorModel.aggregate([{ $group: { _id: null, totalVisits: { $sum: "$visitCount" } } }]),
+        VisitorModel.aggregate([{ $group: { _id: "$platform", count: { $sum: 1 } } }]),
         VisitorModel.aggregate([{ $group: { _id: "$device", count: { $sum: 1 } } }]),
         VisitorModel.aggregate([{ $group: { _id: "$browser", count: { $sum: 1 } } }, { $sort: { count: -1 } }, { $limit: 6 }]),
         VisitorModel.aggregate([{ $group: { _id: "$currentPath", count: { $sum: "$visitCount" } } }, { $sort: { count: -1 } }, { $limit: 10 }]),
@@ -246,6 +329,11 @@ const getVisitorAnalytics = async (query: Record<string, any> = {}) => {
     ]);
 
     const totalVisits = totalVisitsAgg[0]?.totalVisits || 0;
+
+    const platformBreakdown = platformAgg.reduce((acc: any, cur: any) => {
+        acc[cur._id || "WEB"] = cur.count;
+        return acc;
+    }, {});
 
     const deviceBreakdown = deviceAgg.reduce((acc: any, cur: any) => {
         acc[cur._id || "Unknown"] = cur.count;
@@ -277,6 +365,7 @@ const getVisitorAnalytics = async (query: Record<string, any> = {}) => {
             registeredUsers: registeredCount,
             guestVisitors: guestsCount,
         },
+        platformBreakdown,
         deviceBreakdown,
         browserBreakdown,
         topPages,

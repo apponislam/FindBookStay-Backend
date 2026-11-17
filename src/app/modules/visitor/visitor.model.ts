@@ -9,6 +9,11 @@ const VisitorSessionSchema = new Schema<IVisitorSession>(
             required: true,
             trim: true,
         },
+        screenName: {
+            type: String,
+            default: null,
+            trim: true,
+        },
         referrer: {
             type: String,
             default: "direct",
@@ -47,6 +52,12 @@ const VisitorSchema = new Schema<IVisitor>(
             default: null,
             trim: true,
         },
+        platform: {
+            type: String,
+            enum: ["WEB", "ANDROID", "IOS", "APP", "UNKNOWN"],
+            default: "WEB",
+            index: true,
+        },
         device: {
             type: String,
             enum: ["Desktop", "Mobile", "Tablet", "Unknown"],
@@ -61,6 +72,31 @@ const VisitorSchema = new Schema<IVisitor>(
         os: {
             type: String,
             default: "Unknown",
+            trim: true,
+        },
+        appVersion: {
+            type: String,
+            default: null,
+            trim: true,
+        },
+        buildNumber: {
+            type: String,
+            default: null,
+            trim: true,
+        },
+        deviceModel: {
+            type: String,
+            default: null,
+            trim: true,
+        },
+        deviceBrand: {
+            type: String,
+            default: null,
+            trim: true,
+        },
+        fcmToken: {
+            type: String,
+            default: null,
             trim: true,
         },
         country: {
@@ -81,6 +117,11 @@ const VisitorSchema = new Schema<IVisitor>(
         currentPath: {
             type: String,
             default: "/",
+            trim: true,
+        },
+        currentScreen: {
+            type: String,
+            default: null,
             trim: true,
         },
         referrer: {
@@ -139,7 +180,8 @@ VisitorSchema.pre("save", async function () {
     }
 });
 
-// Performance & Filtering Indexes (single field indexes visitorId, user, device are indexed on schema fields)
+// Performance & Filtering Indexes (single field indexes visitorId, user, device, platform are indexed on schema fields)
+VisitorSchema.index({ platform: 1, lastVisit: -1 });
 VisitorSchema.index({ lastVisit: -1 });
 VisitorSchema.index({ createdAt: -1 });
 VisitorSchema.index({ country: 1 });

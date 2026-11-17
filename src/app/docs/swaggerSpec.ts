@@ -10,6 +10,8 @@ import { reportSchemas } from "./schemas/report.schemas";
 import { visitorSchemas } from "./schemas/visitor.schemas";
 import { conversationSchemas } from "./schemas/conversation.schemas";
 import { messageSchemas } from "./schemas/message.schemas";
+import { settingsSchemas } from "./schemas/settings.schemas";
+import { siteSettingsSchemas } from "./schemas/siteSettings.schemas";
 
 import { authPaths } from "./paths/auth.paths";
 import { listingPaths } from "./paths/listing.paths";
@@ -22,6 +24,8 @@ import { activityLogPaths } from "./paths/activityLog.paths";
 import { visitorPaths } from "./paths/visitor.paths";
 import { conversationPaths } from "./paths/conversation.paths";
 import { messagePaths } from "./paths/message.paths";
+import { settingsPaths } from "./paths/settings.paths";
+import { siteSettingsPaths } from "./paths/siteSettings.paths";
 
 export const swaggerSpec = {
     openapi: "3.0.3",
@@ -111,7 +115,23 @@ export const swaggerSpec = {
         },
         {
             name: "Chat & Messaging (Messages)",
-            description: "Real-time chat messaging with photo/file attachments, location sharing, Socket.IO instant delivery, and read receipts",
+            description: "Real-time chat messaging with photo attachments, Socket.IO instant delivery, and read receipts",
+        },
+        {
+            name: "User Settings",
+            description: "User personal preferences: notification channels, privacy controls, language, currency, and theme",
+        },
+        {
+            name: "User Settings (Admin Only)",
+            description: "Admin inspection of individual user configuration",
+        },
+        {
+            name: "Site Settings",
+            description: "Public platform configuration: branding, contact info, social links, maintenance status, and app versioning",
+        },
+        {
+            name: "Site Settings (Admin Only)",
+            description: "Platform-wide administration: business rules (commission rate, advance hours), logo/favicon uploads, and maintenance mode",
         },
     ],
     components: {
@@ -136,6 +156,8 @@ export const swaggerSpec = {
             ...visitorSchemas,
             ...conversationSchemas,
             ...messageSchemas,
+            ...settingsSchemas,
+            ...siteSettingsSchemas,
         },
     },
     paths: {
@@ -150,5 +172,7 @@ export const swaggerSpec = {
         ...visitorPaths,
         ...conversationPaths,
         ...messagePaths,
+        ...settingsPaths,
+        ...siteSettingsPaths,
     },
 };

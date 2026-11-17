@@ -21,6 +21,11 @@ const MessageSchema = new Schema<IMessage>(
             required: [true, "Recipient ID is required."],
             index: true,
         },
+        clientMessageId: {
+            type: String,
+            trim: true,
+            default: null,
+        },
         messageType: {
             type: String,
             enum: ["TEXT", "IMAGE"],
@@ -66,10 +71,11 @@ const MessageSchema = new Schema<IMessage>(
     },
 );
 
-// High performance query indexes
+// High performance compound query indexes (single fields conversation, sender, recipient, isRead are indexed on fields)
+MessageSchema.index({ conversation: 1, _id: -1 });
 MessageSchema.index({ conversation: 1, createdAt: -1 });
-MessageSchema.index({ conversation: 1, createdAt: 1 });
+MessageSchema.index({ conversation: 1, updatedAt: -1 });
 MessageSchema.index({ recipient: 1, isRead: 1 });
-MessageSchema.index({ sender: 1 });
+MessageSchema.index({ clientMessageId: 1, sender: 1 }, { sparse: true });
 
 export const MessageModel = mongoose.model<IMessage>("Message", MessageSchema);

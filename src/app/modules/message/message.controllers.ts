@@ -32,6 +32,22 @@ const getConversationMessages = catchAsync(async (req: Request, res: Response) =
     });
 });
 
+const syncMessages = catchAsync(async (req: Request, res: Response) => {
+    const userId = req.user._id.toString();
+    const conversationId = req.params.conversationId as string;
+    const since = req.query.since as string | undefined;
+
+    const result = await messageServices.syncMessages(conversationId, userId, since);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Messages synced successfully.",
+        meta: result.meta,
+        data: result.data,
+    });
+});
+
 const markMessagesAsRead = catchAsync(async (req: Request, res: Response) => {
     const userId = req.user._id.toString();
     const conversationId = req.params.conversationId as string;
@@ -64,6 +80,7 @@ const deleteMessage = catchAsync(async (req: Request, res: Response) => {
 export const messageControllers = {
     sendMessage,
     getConversationMessages,
+    syncMessages,
     markMessagesAsRead,
     deleteMessage,
 };

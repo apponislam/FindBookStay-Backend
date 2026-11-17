@@ -17,6 +17,11 @@ export const messageSchemas = {
                 example: "6650d123f8194b321a000004",
                 description: "Optional listing ID to link conversation with",
             },
+            clientMessageId: {
+                type: "string",
+                example: "cuid-or-uuid-v4-abc",
+                description: "Optional client-generated unique ID for optimistic UI and idempotent delivery",
+            },
             messageType: {
                 type: "string",
                 enum: ["TEXT", "IMAGE"],
@@ -59,6 +64,7 @@ export const messageSchemas = {
                     profileImage: { type: "string", example: "/uploads/profile/profile-2.webp" },
                 },
             },
+            clientMessageId: { type: "string", example: "cuid-or-uuid-v4-abc", nullable: true },
             messageType: {
                 type: "string",
                 enum: ["TEXT", "IMAGE"],
@@ -86,12 +92,33 @@ export const messageSchemas = {
             meta: {
                 type: "object",
                 properties: {
-                    page: { type: "number", example: 1 },
                     limit: { type: "number", example: 50 },
+                    nextCursor: { type: "string", nullable: true, example: "6670d123f8194b321a000006" },
+                    hasMore: { type: "boolean", example: true },
+                    isCursorMode: { type: "boolean", example: true },
+                    page: { type: "number", example: 1 },
                     total: { type: "number", example: 35 },
                     totalPages: { type: "number", example: 1 },
                     hasNext: { type: "boolean", example: false },
                     hasPrev: { type: "boolean", example: false },
+                },
+            },
+            data: {
+                type: "array",
+                items: { $ref: "#/components/schemas/MessageItem" },
+            },
+        },
+    },
+    SyncMessagesResponse: {
+        type: "object",
+        properties: {
+            success: { type: "boolean", example: true },
+            message: { type: "string", example: "Messages synced successfully." },
+            meta: {
+                type: "object",
+                properties: {
+                    count: { type: "number", example: 4 },
+                    syncedAt: { type: "string", format: "date-time" },
                 },
             },
             data: {

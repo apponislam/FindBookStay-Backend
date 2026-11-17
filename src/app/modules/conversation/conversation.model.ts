@@ -28,7 +28,6 @@ const ConversationSchema = new Schema<IConversation>(
         lastMessageAt: {
             type: Date,
             default: Date.now,
-            index: true,
         },
         unreadCounts: {
             type: Schema.Types.Mixed,

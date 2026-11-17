@@ -14,6 +14,7 @@ const sendMessageZodSchema = z
             .string()
             .regex(/^[0-9a-fA-F]{24}$/, "Invalid listing ID format.")
             .optional(),
+        clientMessageId: z.string().optional(),
         messageType: z.enum(["TEXT", "IMAGE"]).optional().default("TEXT"),
         text: z.string().max(5000, "Message cannot exceed 5000 characters.").optional(),
         attachments: z.array(z.string()).optional(),

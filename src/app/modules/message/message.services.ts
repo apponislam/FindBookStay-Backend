@@ -13,6 +13,7 @@ const sendMessage = async (
         conversationId?: string;
         recipientId?: string;
         listingId?: string;
+        clientMessageId?: string;
         messageType?: "TEXT" | "IMAGE";
         text?: string;
         attachments?: string[];
@@ -51,6 +52,21 @@ const sendMessage = async (
     const senderObjectId = new mongoose.Types.ObjectId(senderId);
     const recipientObjectId = new mongoose.Types.ObjectId(resolvedRecipientId!);
 
+    // Idempotency: Return existing message if clientMessageId was already processed
+    if (payload.clientMessageId?.trim()) {
+        const existingMessage = await MessageModel.findOne({
+            conversation: conversation._id,
+            sender: senderObjectId,
+            clientMessageId: payload.clientMessageId.trim(),
+        })
+            .populate("sender", "name email role profileImage isEmailVerified")
+            .populate("recipient", "name email role profileImage isEmailVerified");
+
+        if (existingMessage) {
+            return existingMessage;
+        }
+    }
+
     let previewText = payload.text?.trim() || "";
     if (!previewText) {
         if (payload.messageType === "IMAGE") previewText = "📷 Photo";
@@ -61,6 +77,7 @@ const sendMessage = async (
         conversation: conversation._id,
         sender: senderObjectId,
         recipient: recipientObjectId,
+        clientMessageId: payload.clientMessageId?.trim() || undefined,
         messageType: payload.messageType || "TEXT",
         text: payload.text?.trim() || "",
         attachments: payload.attachments || [],
@@ -68,13 +85,8 @@ const sendMessage = async (
         isRead: false,
     });
 
-    // Update conversation metadata and increment recipient's unread count
+    // Atomic conversation update: increments recipient unread count and resets sender unread count
     const currentUnread = (conversation.unreadCounts && conversation.unreadCounts[resolvedRecipientId!]) || 0;
-    const updatedUnreadCounts = {
-        ...(conversation.unreadCounts || {}),
-        [resolvedRecipientId!]: currentUnread + 1,
-        [senderId]: 0,
-    };
 
     await ConversationModel.updateOne(
         { _id: conversation._id },
@@ -83,16 +95,19 @@ const sendMessage = async (
                 lastMessage: message._id,
                 lastMessageText: previewText,
                 lastMessageAt: new Date(),
-                unreadCounts: updatedUnreadCounts,
+                [`unreadCounts.${resolvedRecipientId}`]: currentUnread + 1,
+                [`unreadCounts.${senderId}`]: 0,
             },
-            // If the recipient had archived the conversation, bring it back to their active inbox
+            // If the recipient had archived the conversation, bring it back to active inbox
             $pull: {
                 archivedBy: recipientObjectId,
             },
         },
     );
 
-    const populatedMessage = await MessageModel.findById(message._id).populate("sender", "name email role profileImage isEmailVerified").populate("recipient", "name email role profileImage isEmailVerified");
+    const populatedMessage = await MessageModel.findById(message._id)
+        .populate("sender", "name email role profileImage isEmailVerified")
+        .populate("recipient", "name email role profileImage isEmailVerified");
 
     // Real-time Socket.IO emission to conversation room and recipient's private room
     const convIdStr = conversation._id.toString();
@@ -116,19 +131,52 @@ const getConversationMessages = async (conversationId: string, userId: string, q
         throw new ApiError(httpStatus.FORBIDDEN, "You do not have permission to view messages in this conversation.");
     }
 
-    const { page = 1, limit = 50, sortOrder = "desc" } = query;
-    const pageNumber = Math.max(1, Number(page));
-    const limitNumber = Math.max(1, Number(limit));
-    const skip = (pageNumber - 1) * limitNumber;
+    const { page, limit = 50, sortOrder = "desc", cursor } = query;
+    const limitNumber = Math.max(1, Math.min(100, Number(limit || 50)));
+    const userObjectId = new mongoose.Types.ObjectId(userId);
 
     const filter: any = {
         conversation: new mongoose.Types.ObjectId(conversationId),
-        deletedFor: { $ne: new mongoose.Types.ObjectId(userId) },
+        deletedFor: { $ne: userObjectId },
     };
+
+    // Fast Keyset (Cursor-based) pagination - O(1) query seek without full document counting
+    if (cursor) {
+        if (!mongoose.Types.ObjectId.isValid(cursor)) {
+            throw new ApiError(httpStatus.BAD_REQUEST, "Invalid cursor format.");
+        }
+        filter._id = { $lt: new mongoose.Types.ObjectId(cursor) };
+
+        // Fetch limit + 1 items to determine if a subsequent page exists
+        const rawMessages = await MessageModel.find(filter)
+            .sort({ _id: -1 })
+            .limit(limitNumber + 1)
+            .populate("sender", "name email role profileImage")
+            .populate("recipient", "name email role profileImage")
+            .lean();
+
+        const hasMore = rawMessages.length > limitNumber;
+        const messages = hasMore ? rawMessages.slice(0, limitNumber) : rawMessages;
+        const nextCursor = hasMore && messages.length > 0 ? messages[messages.length - 1]._id.toString() : null;
+
+        return {
+            data: sortOrder === "asc" ? messages.reverse() : messages,
+            meta: {
+                limit: limitNumber,
+                nextCursor,
+                hasMore,
+                isCursorMode: true,
+            },
+        };
+    }
+
+    // Offset-based pagination fallback (for older clients or standard page/limit requests)
+    const pageNumber = Math.max(1, Number(page || 1));
+    const skip = (pageNumber - 1) * limitNumber;
 
     const [messages, total] = await Promise.all([
         MessageModel.find(filter)
-            .sort({ createdAt: sortOrder === "asc" ? 1 : -1 })
+            .sort({ _id: -1 })
             .skip(skip)
             .limit(limitNumber)
             .populate("sender", "name email role profileImage")
@@ -138,9 +186,10 @@ const getConversationMessages = async (conversationId: string, userId: string, q
     ]);
 
     const totalPages = Math.ceil(total / limitNumber);
+    const nextCursor = messages.length > 0 ? messages[messages.length - 1]._id.toString() : null;
 
     return {
-        data: sortOrder === "desc" ? messages.reverse() : messages, // return in natural reading order if desired
+        data: sortOrder === "asc" ? messages.reverse() : messages,
         meta: {
             page: pageNumber,
             limit: limitNumber,
@@ -148,6 +197,50 @@ const getConversationMessages = async (conversationId: string, userId: string, q
             totalPages,
             hasNext: pageNumber < totalPages,
             hasPrev: pageNumber > 1,
+            nextCursor,
+            isCursorMode: false,
+        },
+    };
+};
+
+/**
+ * Reconnection Sync ("Catch-Up") endpoint:
+ * Fetches all messages created or updated in a conversation since a given timestamp
+ */
+const syncMessages = async (conversationId: string, userId: string, since?: string) => {
+    const conversation = await ConversationModel.findById(conversationId);
+    if (!conversation) {
+        throw new ApiError(httpStatus.NOT_FOUND, "Conversation not found.");
+    }
+
+    const isParticipant = conversation.participants.some((p: any) => p.toString() === userId || p._id?.toString() === userId);
+    if (!isParticipant) {
+        throw new ApiError(httpStatus.FORBIDDEN, "You do not have permission to view messages in this conversation.");
+    }
+
+    const sinceDate = since ? new Date(since) : new Date(Date.now() - 24 * 60 * 60 * 1000);
+    if (isNaN(sinceDate.getTime())) {
+        throw new ApiError(httpStatus.BAD_REQUEST, "Invalid since timestamp format. Expected ISO date string.");
+    }
+
+    const filter: any = {
+        conversation: new mongoose.Types.ObjectId(conversationId),
+        deletedFor: { $ne: new mongoose.Types.ObjectId(userId) },
+        updatedAt: { $gt: sinceDate },
+    };
+
+    const messages = await MessageModel.find(filter)
+        .sort({ createdAt: 1 })
+        .limit(100)
+        .populate("sender", "name email role profileImage")
+        .populate("recipient", "name email role profileImage")
+        .lean();
+
+    return {
+        data: messages,
+        meta: {
+            count: messages.length,
+            syncedAt: new Date(),
         },
     };
 };
@@ -181,13 +274,15 @@ const markMessagesAsRead = async (conversationId: string, userId: string) => {
         },
     );
 
-    // Reset this user's unread counter in the conversation document
-    const updatedUnreadCounts = {
-        ...(conversation.unreadCounts || {}),
-        [userId]: 0,
-    };
-
-    await ConversationModel.updateOne({ _id: conversationId }, { $set: { unreadCounts: updatedUnreadCounts } });
+    // Atomically reset this user's unread counter in the conversation document
+    await ConversationModel.updateOne(
+        { _id: conversationId },
+        {
+            $set: {
+                [`unreadCounts.${userId}`]: 0,
+            },
+        },
+    );
 
     // Real-time Socket.IO emission to conversation room
     emitToConversation(conversationId, "messages_read", {
@@ -232,6 +327,7 @@ const deleteMessage = async (messageId: string, userId: string, deleteForEveryon
 export const messageServices = {
     sendMessage,
     getConversationMessages,
+    syncMessages,
     markMessagesAsRead,
     deleteMessage,
 };

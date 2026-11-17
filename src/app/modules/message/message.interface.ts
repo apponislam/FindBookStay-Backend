@@ -10,6 +10,7 @@ export interface IMessage {
     conversation: Types.ObjectId | IConversation;
     sender: Types.ObjectId | User;
     recipient: Types.ObjectId | User;
+    clientMessageId?: string;
     messageType: MessageType;
     text?: string;
     attachments?: string[];

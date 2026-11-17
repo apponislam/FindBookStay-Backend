@@ -1,5 +1,6 @@
 import { Server as SocketIOServer, Socket } from "socket.io";
 import { getIO } from "../../../utils/socket";
+import { messageServices } from "./message.services";
 
 // Track active online users: userId -> Set of socket IDs (supports multiple tabs/devices)
 const onlineUsersMap = new Map<string, Set<string>>();
@@ -21,6 +22,54 @@ export const registerChatSocket = (io: SocketIOServer): void => {
             }
             onlineUsersMap.get(userId)?.add(socket.id);
         }
+
+        // Direct real-time message sending with ACK callback (Fast RPC over WebSocket)
+        socket.on(
+            "send_message",
+            async (
+                data: {
+                    conversationId?: string;
+                    recipientId?: string;
+                    listingId?: string;
+                    clientMessageId?: string;
+                    messageType?: "TEXT" | "IMAGE";
+                    text?: string;
+                    attachments?: string[];
+                },
+                callback?: (response: { success: boolean; message: string; data?: any }) => void,
+            ) => {
+                try {
+                    const senderId = userId || (socket as any).userId;
+                    if (!senderId) {
+                        if (typeof callback === "function") {
+                            return callback({
+                                success: false,
+                                message: "Authentication required. Please connect with a valid JWT token.",
+                            });
+                        }
+                        return;
+                    }
+
+                    const message = await messageServices.sendMessage(senderId, data);
+
+                    if (typeof callback === "function") {
+                        callback({
+                            success: true,
+                            message: "Message sent successfully.",
+                            data: message,
+                        });
+                    }
+                } catch (err: any) {
+                    console.error("❌ [Chat Socket send_message Error]:", err);
+                    if (typeof callback === "function") {
+                        callback({
+                            success: false,
+                            message: err.message || "Failed to send message.",
+                        });
+                    }
+                }
+            },
+        );
 
         // Join specific conversation room
         socket.on("join_conversation", (conversationId: string) => {

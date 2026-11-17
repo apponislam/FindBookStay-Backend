@@ -6,9 +6,9 @@ type TResponse<T> = {
     message?: string;
     data: T;
     meta?: {
-        page: number;
-        limit: number;
-        total: number;
+        page?: number;
+        limit?: number;
+        total?: number;
         totalPages?: number;
         hasNext?: boolean;
         hasPrev?: boolean;

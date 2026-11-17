@@ -38,11 +38,11 @@ export const messagePaths = {
             },
         },
     },
-    "/messages/{conversationId}": {
+    "/messages/sync/{conversationId}": {
         get: {
             tags: ["Chat & Messaging (Messages)"],
-            summary: "Get messages for a conversation",
-            description: "Retrieves paginated chat history for a conversation. Verifies user is a participant.",
+            summary: "Sync catch-up messages on reconnect",
+            description: "Fetches all messages in a conversation created or updated since a given timestamp. Ideal for mobile/web reconnection catch-up.",
             security: [{ bearerAuth: [] }],
             parameters: [
                 {
@@ -53,9 +53,51 @@ export const messagePaths = {
                     description: "Conversation ObjectId",
                 },
                 {
+                    name: "since",
+                    in: "query",
+                    schema: { type: "string", format: "date-time" },
+                    description: "ISO timestamp (e.g. 2026-11-17T12:00:00.000Z). Defaults to past 24 hours.",
+                },
+            ],
+            responses: {
+                200: {
+                    description: "Messages synced successfully.",
+                    content: {
+                        "application/json": {
+                            schema: { $ref: "#/components/schemas/SyncMessagesResponse" },
+                        },
+                    },
+                },
+                401: { description: "Unauthorized." },
+                403: { description: "Forbidden. Not a participant in this conversation." },
+            },
+        },
+    },
+    "/messages/{conversationId}": {
+        get: {
+            tags: ["Chat & Messaging (Messages)"],
+            summary: "Get messages for a conversation",
+            description: "Retrieves paginated chat history for a conversation. Supports high-performance cursor pagination (O(1)) and traditional offset pagination.",
+            security: [{ bearerAuth: [] }],
+            parameters: [
+                {
+                    name: "conversationId",
+                    in: "path",
+                    required: true,
+                    schema: { type: "string" },
+                    description: "Conversation ObjectId",
+                },
+                {
+                    name: "cursor",
+                    in: "query",
+                    schema: { type: "string" },
+                    description: "Optional Message _id cursor. When provided, returns messages older than this cursor (O(1) keyset seeking).",
+                },
+                {
                     name: "page",
                     in: "query",
                     schema: { type: "integer", default: 1 },
+                    description: "Used when cursor is not provided",
                 },
                 {
                     name: "limit",

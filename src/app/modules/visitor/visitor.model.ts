@@ -100,7 +100,6 @@ const VisitorSchema = new Schema<IVisitor>(
         lastVisit: {
             type: Date,
             default: Date.now,
-            index: true,
         },
         recentVisits: {
             type: [VisitorSessionSchema],
@@ -140,12 +139,9 @@ VisitorSchema.pre("save", async function () {
     }
 });
 
-// Performance & Filtering Indexes
-VisitorSchema.index({ visitorId: 1 }, { unique: true });
-VisitorSchema.index({ user: 1 });
+// Performance & Filtering Indexes (single field indexes visitorId, user, device are indexed on schema fields)
 VisitorSchema.index({ lastVisit: -1 });
 VisitorSchema.index({ createdAt: -1 });
-VisitorSchema.index({ device: 1 });
 VisitorSchema.index({ country: 1 });
 VisitorSchema.index({ ipAddress: 1 });
 VisitorSchema.index({ currentPath: 1 });

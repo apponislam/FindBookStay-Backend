@@ -8,12 +8,7 @@ import { ILiveLocation } from "./auth.interface";
 import { resolveUserAddresses } from "./auth.utils";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
-import {
-    sendOtpEmail,
-    sendVerificationEmail,
-    sendWelcomeEmail,
-    sendEmailUpdateVerification,
-} from "../../../utils/emailTemplates";
+import { sendOtpEmail, sendVerificationEmail, sendWelcomeEmail, sendEmailUpdateVerification } from "../../../utils/emailTemplates";
 import { authRedis } from "./auth.redis";
 
 const registerUser = async (data: any) => {
@@ -67,11 +62,7 @@ const registerUser = async (data: any) => {
     // Resolve address locations using geocoding if coordinates not provided
     // If presentAddress and permanentAddress are the same, geocode only once!
     if (userData.presentAddress || userData.permanentAddress) {
-        const resolved = await resolveUserAddresses(
-            userData.presentAddress,
-            userData.permanentAddress,
-            data.sameAsPresent
-        );
+        const resolved = await resolveUserAddresses(userData.presentAddress, userData.permanentAddress, data.sameAsPresent);
         if (resolved.presentAddress) {
             userData.presentAddress = resolved.presentAddress;
         } else {
@@ -86,11 +77,7 @@ const registerUser = async (data: any) => {
 
     // Clean up liveLocation if invalid or missing coordinates
     if (userData.liveLocation) {
-        if (
-            !userData.liveLocation.coordinates ||
-            !Array.isArray(userData.liveLocation.coordinates) ||
-            userData.liveLocation.coordinates.length < 2
-        ) {
+        if (!userData.liveLocation.coordinates || !Array.isArray(userData.liveLocation.coordinates) || userData.liveLocation.coordinates.length < 2) {
             delete userData.liveLocation;
         } else {
             userData.liveLocation.type = "Point";
@@ -106,12 +93,7 @@ const registerUser = async (data: any) => {
 
     // Store temporary verification data in Redis
     try {
-        await authRedis.storeEmailVerification(
-            createdUser.email as string,
-            createdUser._id.toString(),
-            verificationToken,
-            verificationCode
-        );
+        await authRedis.storeEmailVerification(createdUser.email as string, createdUser._id.toString(), verificationToken, verificationCode);
 
         const verificationUrl = `${config.client_url}/verify-email?token=${verificationToken}&email=${createdUser.email}`;
         await sendVerificationEmail(createdUser.email as string, createdUser.name as string, verificationUrl, verificationCode);
@@ -345,11 +327,7 @@ const updateProfile = async (userId: string, data: any) => {
             currentPermanent = { ...currentPresent };
         }
 
-        const resolved = await resolveUserAddresses(
-            currentPresent,
-            currentPermanent,
-            data.sameAsPresent
-        );
+        const resolved = await resolveUserAddresses(currentPresent, currentPermanent, data.sameAsPresent);
 
         if (resolved.presentAddress !== undefined) {
             data.presentAddress = resolved.presentAddress;
@@ -379,11 +357,7 @@ const updateProfile = async (userId: string, data: any) => {
         }
     }
 
-    const user = await UserModel.findOneAndUpdate(
-        { _id: userId, isDeleted: false },
-        { $set: data },
-        { returnDocument: "after", runValidators: true }
-    ).select("-password");
+    const user = await UserModel.findOneAndUpdate({ _id: userId, isDeleted: false }, { $set: data }, { returnDocument: "after", runValidators: true }).select("-password");
 
     if (!user) throw new ApiError(httpStatus.NOT_FOUND, "User account not found or no longer active.");
 
@@ -405,7 +379,7 @@ const updateLiveLocation = async (
         coordinates?: [number, number]; // [longitude, latitude]
         heading?: number;
         speed?: number;
-    }
+    },
 ) => {
     let lat: number | undefined;
     let lng: number | undefined;
@@ -440,11 +414,7 @@ const updateLiveLocation = async (
         ...(payload.speed !== undefined && !isNaN(Number(payload.speed)) && { speed: Number(payload.speed) }),
     };
 
-    const user = await UserModel.findOneAndUpdate(
-        { _id: userId, isDeleted: false },
-        { $set: { liveLocation } },
-        { returnDocument: "after", runValidators: true }
-    ).select("-password");
+    const user = await UserModel.findOneAndUpdate({ _id: userId, isDeleted: false }, { $set: { liveLocation } }, { returnDocument: "after", runValidators: true }).select("-password");
 
     if (!user) {
         throw new ApiError(httpStatus.NOT_FOUND, "User account not found or no longer active.");
@@ -566,11 +536,7 @@ const verifyNewEmail = async (token: string, email?: string) => {
     }
 
     // Update user's email in MongoDB
-    const updatedUser = await UserModel.findByIdAndUpdate(
-        userId,
-        { $set: { email: pendingEmail } },
-        { new: true }
-    );
+    const updatedUser = await UserModel.findByIdAndUpdate(userId, { $set: { email: pendingEmail } }, { new: true });
 
     if (!updatedUser) {
         throw new ApiError(httpStatus.NOT_FOUND, "User account not found.");
@@ -633,10 +599,7 @@ const removeFcmToken = async (userId: string, fcmToken: string) => {
         throw new ApiError(httpStatus.BAD_REQUEST, "FCM device token is required.");
     }
 
-    await UserModel.updateOne(
-        { _id: userId },
-        { $pull: { fcmTokens: fcmToken } }
-    );
+    await UserModel.updateOne({ _id: userId }, { $pull: { fcmTokens: fcmToken } });
 
     return { message: "FCM token removed successfully." };
 };

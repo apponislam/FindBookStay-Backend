@@ -7,6 +7,7 @@ import { listingSchemas } from "./schemas/listing.schemas";
 import { reviewSchemas } from "./schemas/review.schemas";
 import { favoriteSchemas } from "./schemas/favorite.schemas";
 import { reportSchemas } from "./schemas/report.schemas";
+import { visitorSchemas } from "./schemas/visitor.schemas";
 
 import { authPaths } from "./paths/auth.paths";
 import { listingPaths } from "./paths/listing.paths";
@@ -16,6 +17,7 @@ import { reportPaths } from "./paths/report.paths";
 import { addressPaths } from "./paths/address.paths";
 import { policyPaths } from "./paths/policy.paths";
 import { activityLogPaths } from "./paths/activityLog.paths";
+import { visitorPaths } from "./paths/visitor.paths";
 
 export const swaggerSpec = {
     openapi: "3.0.3",
@@ -95,6 +97,10 @@ export const swaggerSpec = {
             name: "Activity & Audit Logs",
             description: "Immutable security audit logs, user login tracking, and automated log purging (Admin Only)",
         },
+        {
+            name: "Visitors",
+            description: "Real-time visitor tracking, analytics, device breakdown, top pages, and visitor history (Admin Only for analytics & listing)",
+        },
     ],
     components: {
         securitySchemes: {
@@ -115,6 +121,7 @@ export const swaggerSpec = {
             ...reviewSchemas,
             ...favoriteSchemas,
             ...reportSchemas,
+            ...visitorSchemas,
         },
     },
     paths: {
@@ -126,5 +133,6 @@ export const swaggerSpec = {
         ...addressPaths,
         ...policyPaths,
         ...activityLogPaths,
+        ...visitorPaths,
     },
 };

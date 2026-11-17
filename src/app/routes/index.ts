@@ -7,6 +7,7 @@ import { reportRoutes } from "../modules/report/report.routes";
 import { activityLogRoutes } from "../modules/activityLog/activityLog.routes";
 import { addressRoutes } from "../modules/address/address.routes";
 import { policyRoutes } from "../modules/policy/policy.routes";
+import { visitorRoutes } from "../modules/visitor/visitor.routes";
 import { swaggerRouter } from "../docs/swagger";
 
 const router = express.Router();
@@ -43,6 +44,10 @@ const moduleRoutes = [
     {
         path: "/policies",
         route: policyRoutes,
+    },
+    {
+        path: "/visitors",
+        route: visitorRoutes,
     },
     {
         path: "/docs",

@@ -8,6 +8,8 @@ import { reviewSchemas } from "./schemas/review.schemas";
 import { favoriteSchemas } from "./schemas/favorite.schemas";
 import { reportSchemas } from "./schemas/report.schemas";
 import { visitorSchemas } from "./schemas/visitor.schemas";
+import { conversationSchemas } from "./schemas/conversation.schemas";
+import { messageSchemas } from "./schemas/message.schemas";
 
 import { authPaths } from "./paths/auth.paths";
 import { listingPaths } from "./paths/listing.paths";
@@ -18,6 +20,8 @@ import { addressPaths } from "./paths/address.paths";
 import { policyPaths } from "./paths/policy.paths";
 import { activityLogPaths } from "./paths/activityLog.paths";
 import { visitorPaths } from "./paths/visitor.paths";
+import { conversationPaths } from "./paths/conversation.paths";
+import { messagePaths } from "./paths/message.paths";
 
 export const swaggerSpec = {
     openapi: "3.0.3",
@@ -101,6 +105,14 @@ export const swaggerSpec = {
             name: "Visitors",
             description: "Real-time visitor tracking, analytics, device breakdown, top pages, and visitor history (Admin Only for analytics & listing)",
         },
+        {
+            name: "Chat & Messaging (Conversations)",
+            description: "1-on-1 conversations between marketplace users, property inquiry channels, and archive/block management",
+        },
+        {
+            name: "Chat & Messaging (Messages)",
+            description: "Real-time chat messaging with photo/file attachments, location sharing, Socket.IO instant delivery, and read receipts",
+        },
     ],
     components: {
         securitySchemes: {
@@ -122,6 +134,8 @@ export const swaggerSpec = {
             ...favoriteSchemas,
             ...reportSchemas,
             ...visitorSchemas,
+            ...conversationSchemas,
+            ...messageSchemas,
         },
     },
     paths: {
@@ -134,5 +148,7 @@ export const swaggerSpec = {
         ...policyPaths,
         ...activityLogPaths,
         ...visitorPaths,
+        ...conversationPaths,
+        ...messagePaths,
     },
 };

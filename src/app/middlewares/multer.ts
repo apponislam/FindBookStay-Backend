@@ -379,3 +379,75 @@ export const uploadListingImages = (req: Request, res: Response, next: NextFunct
     });
 };
 
+/**
+ * Chat Message Attachments Upload Middleware
+ * 1. Accepts up to 5 attachments under field name "attachments", "files", or "images"
+ * 2. Optimizes image buffers with Sharp into /uploads/messages/ as modern WebP
+ * 3. Handles base64 images if passed in JSON body
+ * 4. Injects array of public URLs into req.body.attachments
+ */
+export const uploadMessageAttachments = (req: Request, res: Response, next: NextFunction): void => {
+    const upload = uploadMemory.fields([
+        { name: "attachments", maxCount: 5 },
+        { name: "files", maxCount: 5 },
+        { name: "images", maxCount: 5 },
+        { name: "image", maxCount: 1 },
+    ]);
+
+    upload(req, res, async (err: any) => {
+        if (err) {
+            return next(err);
+        }
+
+        // Safe JSON parsing for multipart form-data
+        if (req.body && typeof req.body.data === "string") {
+            try {
+                const parsed = JSON.parse(req.body.data);
+                req.body = { ...parsed, ...req.body };
+            } catch {}
+        }
+
+        if (req.body && typeof req.body.location === "string") {
+            try {
+                req.body.location = JSON.parse(req.body.location);
+            } catch {}
+        }
+
+        const uploadedList: string[] = [];
+        const filesMap = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
+
+        if (filesMap) {
+            const allFiles = [
+                ...(filesMap["attachments"] || []),
+                ...(filesMap["files"] || []),
+                ...(filesMap["images"] || []),
+                ...(filesMap["image"] || []),
+            ];
+
+            try {
+                for (const file of allFiles) {
+                    const optimized = await optimizeBuffer(file.buffer, "messages", {
+                        maxWidth: 1600,
+                        maxHeight: 1600,
+                        quality: 80,
+                        format: "webp",
+                    });
+                    uploadedList.push(optimized.relativePath);
+                }
+            } catch (sharpErr) {
+                console.error("❌ [Sharp Message Attachments Error]:", sharpErr);
+                return next(new ApiError(httpStatus.BAD_REQUEST, "Failed to optimize uploaded message attachments."));
+            }
+        }
+
+        if (uploadedList.length > 0) {
+            req.body.attachments = uploadedList;
+            if (!req.body.messageType || req.body.messageType === "TEXT") {
+                req.body.messageType = "IMAGE";
+            }
+        }
+
+        next();
+    });
+};
+

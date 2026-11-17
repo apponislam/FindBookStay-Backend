@@ -1,11 +1,13 @@
 import { Server as HTTPServer } from "http";
 import { Server as SocketIOServer, Socket } from "socket.io";
+import jwt from "jsonwebtoken";
 import config from "../app/config";
+import { registerChatSocket, emitToConversation, isUserOnline, getOnlineUserIds } from "../app/modules/message/message.socket";
 
 let io: SocketIOServer | null = null;
 
 /**
- * Initialize Socket.IO with HTTP Server and CORS options
+ * Initialize Socket.IO with HTTP Server, CORS options, and Handshake Auth
  */
 export const initSocket = (server: HTTPServer): SocketIOServer => {
     const allowedOrigins = [
@@ -22,35 +24,59 @@ export const initSocket = (server: HTTPServer): SocketIOServer => {
     io = new SocketIOServer(server, {
         cors: {
             origin: allowedOrigins,
-            methods: ["GET", "POST"],
+            methods: ["GET", "POST", "PATCH", "PUT", "DELETE"],
             credentials: true,
         },
         pingTimeout: 60000,
         pingInterval: 25000,
     });
 
+    // Global Socket.IO JWT Authentication Middleware
+    io.use((socket: Socket, next) => {
+        try {
+            let token =
+                socket.handshake.auth?.token ||
+                socket.handshake.headers?.authorization ||
+                socket.handshake.query?.token;
+
+            if (typeof token === "string" && token.startsWith("Bearer ")) {
+                token = token.slice(7);
+            }
+
+            if (token && typeof token === "string") {
+                const decoded = jwt.verify(token, config.jwt_access_secret as string) as {
+                    _id: string;
+                    name?: string;
+                    email?: string;
+                    role?: string;
+                };
+                (socket as any).userId = decoded._id;
+                (socket as any).user = decoded;
+            }
+            next();
+        } catch {
+            next();
+        }
+    });
+
+    // Base connection handling for user & custom rooms
     io.on("connection", (socket: Socket) => {
         console.log(`🔌 [Socket.io] Client connected: ${socket.id}`);
 
-        // Join user-specific private notification room
         socket.on("join_user_room", (userId: string) => {
             if (userId) {
-                const room = `user_${userId}`;
-                socket.join(room);
-                console.log(`👤 [Socket.io] User ${userId} joined room: ${room}`);
+                socket.join(`user_${userId}`);
+                console.log(`👤 [Socket.io] User ${userId} joined room: user_${userId}`);
             }
         });
 
-        // Leave user private room
         socket.on("leave_user_room", (userId: string) => {
             if (userId) {
-                const room = `user_${userId}`;
-                socket.leave(room);
-                console.log(`👋 [Socket.io] User ${userId} left room: ${room}`);
+                socket.leave(`user_${userId}`);
+                console.log(`👋 [Socket.io] User ${userId} left room: user_${userId}`);
             }
         });
 
-        // Join specific entity/booking room (e.g., booking_123, turf_456)
         socket.on("join_room", (roomName: string) => {
             if (roomName) {
                 socket.join(roomName);
@@ -58,7 +84,6 @@ export const initSocket = (server: HTTPServer): SocketIOServer => {
             }
         });
 
-        // Leave specific room
         socket.on("leave_room", (roomName: string) => {
             if (roomName) {
                 socket.leave(roomName);
@@ -75,12 +100,15 @@ export const initSocket = (server: HTTPServer): SocketIOServer => {
         });
     });
 
+    // Register Chat & Messaging module socket handlers
+    registerChatSocket(io);
+
     console.log("⚡ [Socket.io] Initialized successfully.");
     return io;
 };
 
 /**
- * Get initialized Socket.IO instance
+ * Get initialized Socket.IO instance for reusable queries anywhere in the app
  */
 export const getIO = (): SocketIOServer => {
     if (!io) {
@@ -90,7 +118,7 @@ export const getIO = (): SocketIOServer => {
 };
 
 /**
- * Send real-time event directly to a specific user's private room
+ * Reusable helper: Send real-time event directly to a specific user's private room
  */
 export const emitToUser = <T = any>(userId: string, event: string, data: T): boolean => {
     try {
@@ -104,7 +132,7 @@ export const emitToUser = <T = any>(userId: string, event: string, data: T): boo
 };
 
 /**
- * Send real-time event to a specific room
+ * Reusable helper: Send real-time event to a specific room
  */
 export const emitToRoom = <T = any>(roomName: string, event: string, data: T): boolean => {
     try {
@@ -118,7 +146,7 @@ export const emitToRoom = <T = any>(roomName: string, event: string, data: T): b
 };
 
 /**
- * Broadcast real-time event to all connected clients
+ * Reusable helper: Broadcast real-time event to all connected clients
  */
 export const broadcastEvent = <T = any>(event: string, data: T): boolean => {
     try {
@@ -131,3 +159,5 @@ export const broadcastEvent = <T = any>(event: string, data: T): boolean => {
     }
 };
 
+// Re-export chat-specific helpers for backwards compatibility
+export { emitToConversation, isUserOnline, getOnlineUserIds };

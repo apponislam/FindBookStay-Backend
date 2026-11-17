@@ -8,6 +8,8 @@ import { activityLogRoutes } from "../modules/activityLog/activityLog.routes";
 import { addressRoutes } from "../modules/address/address.routes";
 import { policyRoutes } from "../modules/policy/policy.routes";
 import { visitorRoutes } from "../modules/visitor/visitor.routes";
+import { conversationRoutes } from "../modules/conversation/conversation.routes";
+import { messageRoutes } from "../modules/message/message.routes";
 import { swaggerRouter } from "../docs/swagger";
 
 const router = express.Router();
@@ -48,6 +50,14 @@ const moduleRoutes = [
     {
         path: "/visitors",
         route: visitorRoutes,
+    },
+    {
+        path: "/conversations",
+        route: conversationRoutes,
+    },
+    {
+        path: "/messages",
+        route: messageRoutes,
     },
     {
         path: "/docs",

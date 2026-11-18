@@ -1,5 +1,6 @@
 import mongoose, { Schema } from "mongoose";
 import { IFavorite } from "./favorite.interface";
+import { ListingCategory } from "../listing/listing.interface";
 
 const FavoriteSchema = new Schema<IFavorite>(
     {
@@ -12,6 +13,19 @@ const FavoriteSchema = new Schema<IFavorite>(
             type: Schema.Types.ObjectId,
             ref: "Listing",
             required: [true, "Listing ID is required."],
+        },
+        category: {
+            type: String,
+            enum: Object.values(ListingCategory),
+            required: [true, "Listing category/type is required."],
+        },
+        subCategory: {
+            type: String,
+            trim: true,
+        },
+        listingType: {
+            type: String,
+            trim: true,
         },
         note: {
             type: String,
@@ -28,7 +42,7 @@ const FavoriteSchema = new Schema<IFavorite>(
 // Indexes
 FavoriteSchema.index({ user: 1, listing: 1 }, { unique: true });
 FavoriteSchema.index({ user: 1, createdAt: -1 });
+FavoriteSchema.index({ user: 1, category: 1, createdAt: -1 });
 FavoriteSchema.index({ listing: 1 });
 
 export const FavoriteModel = mongoose.model<IFavorite>("Favorite", FavoriteSchema);
-

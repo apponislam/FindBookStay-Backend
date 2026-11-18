@@ -14,6 +14,7 @@ import { settingsRoutes } from "../modules/settings/settings.routes";
 import { siteSettingsRoutes } from "../modules/siteSettings/siteSettings.routes";
 import { notificationRoutes } from "../modules/notification/notification.routes";
 import { listingViewRoutes } from "../modules/listingView/listingView.routes";
+import { lastViewedRoutes } from "../modules/lastViewed/lastViewed.routes";
 import { swaggerRouter } from "../docs/swagger";
 
 const router = express.Router();
@@ -30,6 +31,10 @@ const moduleRoutes = [
     {
         path: "/listing-views",
         route: listingViewRoutes,
+    },
+    {
+        path: "/last-viewed",
+        route: lastViewedRoutes,
     },
     {
         path: "/reviews",

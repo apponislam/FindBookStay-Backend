@@ -10,6 +10,7 @@ import {
 } from "./listing.interface";
 import { ListingModel } from "./listing.model";
 import { listingViewServices } from "../listingView/listingView.services";
+import { lastViewedServices } from "../lastViewed/lastViewed.services";
 import { UserModel } from "../auth/auth.model";
 import { activityLogServices } from "../activityLog/activityLog.services";
 
@@ -604,6 +605,16 @@ const getListingByIdOrSlug = async (
             reqUser,
             meta
         );
+
+        // If user is authenticated, also automatically track in their last viewed history (max 10 items)
+        if (reqUser?._id) {
+            lastViewedServices.recordLastViewed(
+                reqUser._id,
+                listing._id as Types.ObjectId,
+                listing.category,
+                listing.subCategory
+            );
+        }
     });
 
     return listing;

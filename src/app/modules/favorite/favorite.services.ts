@@ -3,6 +3,7 @@ import httpStatus from "http-status";
 import ApiError from "../../../errors/ApiError";
 import { FavoriteModel } from "./favorite.model";
 import { ListingModel } from "../listing/listing.model";
+import { ListingCategory } from "../listing/listing.interface";
 
 /**
  * Toggle favorite listing (Add if not in favorites, remove if already present)
@@ -34,9 +35,24 @@ const toggleFavorite = async (userId: string, listingId: string, note?: string) 
             data: null,
         };
     } else {
+        // Determine vertical-specific listingType
+        let listingType: string | undefined;
+        if (listing.category === ListingCategory.HOME) {
+            listingType = listing.homeDetails?.rentType || listing.homeDetails?.targetTenant;
+        } else if (listing.category === ListingCategory.STAY) {
+            listingType = listing.stayDetails?.stayType || listing.stayDetails?.roomType;
+        } else if (listing.category === ListingCategory.TURF) {
+            listingType = listing.turfDetails?.sportType || listing.turfDetails?.turfSize;
+        } else if (listing.category === ListingCategory.PROPERTY) {
+            listingType = listing.propertyDetails?.propertyType || listing.propertyDetails?.completionStatus;
+        }
+
         const favorite = await FavoriteModel.create({
             user: targetUserId,
             listing: targetListingId,
+            category: listing.category,
+            subCategory: listing.subCategory,
+            listingType,
             note,
         });
 
@@ -54,16 +70,27 @@ const toggleFavorite = async (userId: string, listingId: string, note?: string) 
 };
 
 /**
- * Get all favorite listings saved by current user
+ * Get all favorite listings saved by current user (supports filtering by category / subCategory / listingType)
  */
 const getMyFavorites = async (userId: string, query: Record<string, any>) => {
-    const filter: any = { user: new Types.ObjectId(userId) };
+    const targetUserId = new Types.ObjectId(userId);
+    const filter: any = { user: targetUserId };
+
+    if (query.category) {
+        filter.category = query.category;
+    }
+    if (query.subCategory) {
+        filter.subCategory = query.subCategory;
+    }
+    if (query.listingType) {
+        filter.listingType = query.listingType;
+    }
 
     const page = Math.max(1, Number(query.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(query.limit) || 12));
     const skip = (page - 1) * limit;
 
-    const [favorites, total] = await Promise.all([
+    const [favorites, total, categoryCounts] = await Promise.all([
         FavoriteModel.find(filter)
             .sort({ createdAt: -1 })
             .skip(skip)
@@ -76,10 +103,27 @@ const getMyFavorites = async (userId: string, query: Record<string, any>) => {
             })
             .lean(),
         FavoriteModel.countDocuments(filter),
+        FavoriteModel.aggregate([
+            { $match: { user: targetUserId } },
+            { $group: { _id: "$category", count: { $sum: 1 } } },
+        ]),
     ]);
 
     // Filter out items where the listing was deleted
     const activeFavorites = favorites.filter((fav) => fav.listing !== null);
+
+    const counts: Record<string, number> = {
+        all: total,
+        HOME: 0,
+        STAY: 0,
+        TURF: 0,
+        PROPERTY: 0,
+    };
+    categoryCounts.forEach((c) => {
+        if (c._id in counts) {
+            counts[c._id] = c.count;
+        }
+    });
 
     const totalPages = Math.ceil(total / limit) || 1;
 
@@ -91,6 +135,7 @@ const getMyFavorites = async (userId: string, query: Record<string, any>) => {
             totalPages,
             hasNext: page < totalPages,
             hasPrev: page > 1,
+            counts,
         },
         data: activeFavorites,
     };

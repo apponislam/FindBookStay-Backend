@@ -4,10 +4,93 @@ import ApiError from "../../../errors/ApiError";
 import { NotificationType } from "./notification.interface";
 import { NotificationModel } from "./notification.model";
 import { UserModel } from "../auth/auth.model";
+import { SettingsModel } from "../settings/settings.model";
 import { emitToUser } from "../../../utils/socket";
+import { sendMulticastPush } from "../../../utils/fcm";
 
 /**
- * Reusable utility to create an in-app notification and emit it in real time via Socket.IO
+ * Check whether push notification for this category is enabled in recipient's settings
+ */
+const isPushAllowedForUser = async (userId: mongoose.Types.ObjectId, type: NotificationType): Promise<boolean> => {
+    try {
+        const settings = await SettingsModel.findOne({ user: userId }).lean();
+        if (!settings?.notifications?.pushNotifications) {
+            return true; // Default allowed if user hasn't modified settings
+        }
+
+        const pushPrefs = settings.notifications.pushNotifications;
+
+        switch (type) {
+            case "BOOKING_CREATED":
+            case "BOOKING_CONFIRMED":
+            case "BOOKING_CANCELLED":
+                return pushPrefs.bookings ?? true;
+            case "MESSAGE_RECEIVED":
+                return pushPrefs.messages ?? true;
+            case "PROMOTION":
+                return pushPrefs.promotions ?? false;
+            default:
+                return pushPrefs.reminders ?? true;
+        }
+    } catch {
+        return true;
+    }
+};
+
+/**
+ * Trigger background FCM push notification safely (non-blocking, checks settings & prunes dead tokens)
+ */
+const triggerPushNotificationSafely = async (
+    recipientId: mongoose.Types.ObjectId,
+    type: NotificationType,
+    title: string,
+    message: string,
+    image?: string | null,
+    link?: string | null,
+    data?: Record<string, any>,
+) => {
+    try {
+        // 1. Check user preferences in settings
+        const isAllowed = await isPushAllowedForUser(recipientId, type);
+        if (!isAllowed) {
+            return;
+        }
+
+        // 2. Fetch recipient's registered FCM device tokens
+        const user = await UserModel.findById(recipientId).select("fcmTokens").lean();
+        const tokens = user?.fcmTokens || [];
+        if (!tokens || tokens.length === 0) {
+            return;
+        }
+
+        // 3. Dispatch FCM push notification
+        const pushResult = await sendMulticastPush({
+            tokens,
+            title,
+            body: message,
+            image,
+            link,
+            data: {
+                notificationType: type,
+                ...(data || {}),
+            },
+        });
+
+        // 4. Prune dead or invalid tokens reported by Firebase
+        if (pushResult.failedTokens && pushResult.failedTokens.length > 0) {
+            await UserModel.updateOne(
+                { _id: recipientId },
+                { $pull: { fcmTokens: { $in: pushResult.failedTokens } } },
+            );
+        }
+    } catch (err) {
+        console.error(`❌ [FCM Push Error for user ${recipientId}]:`, err);
+    }
+};
+
+/**
+ * Reusable utility to create an in-app notification, emit it in real time via Socket.IO,
+ * and deliver FCM Push Notifications based on user preferences
  */
 const createNotification = async (payload: {
     recipient: string | mongoose.Types.ObjectId;
@@ -15,17 +98,18 @@ const createNotification = async (payload: {
     type?: NotificationType;
     title: string;
     message: string;
-    image?: string;
-    link?: string;
+    image?: string | null;
+    link?: string | null;
     data?: Record<string, any>;
 }) => {
     const recipientObjectId = new mongoose.Types.ObjectId(payload.recipient);
     const senderObjectId = payload.sender ? new mongoose.Types.ObjectId(payload.sender) : null;
+    const notificationType: NotificationType = payload.type || "GENERAL";
 
     const notification = await NotificationModel.create({
         recipient: recipientObjectId,
         sender: senderObjectId,
-        type: payload.type || "GENERAL",
+        type: notificationType,
         title: payload.title.trim(),
         message: payload.message.trim(),
         image: payload.image || null,
@@ -38,8 +122,19 @@ const createNotification = async (payload: {
         .populate("sender", "name email role profileImage")
         .lean();
 
-    // Real-time instant delivery to recipient's private user room
+    // 1. Real-time instant delivery via Socket.IO (for active web & mobile foreground sessions)
     emitToUser(recipientObjectId.toString(), "new_notification", populated);
+
+    // 2. Background FCM Push Notification (checks settings & delivers to device lock screens)
+    triggerPushNotificationSafely(
+        recipientObjectId,
+        notificationType,
+        payload.title,
+        payload.message,
+        payload.image,
+        payload.link,
+        payload.data,
+    );
 
     return populated;
 };
@@ -248,6 +343,46 @@ const sendCustomNotification = async (
                 createdAt: new Date(),
             });
         }
+
+        // Asynchronous FCM Push Notification broadcast (background, non-blocking, checks settings)
+        (async () => {
+            try {
+                const usersWithTokens = await UserModel.find(userFilter).select("_id fcmTokens").lean();
+                const eligibleTokens: string[] = [];
+
+                for (const u of usersWithTokens) {
+                    if (u.fcmTokens && u.fcmTokens.length > 0) {
+                        const allowed = await isPushAllowedForUser(u._id as any, payload.type || "GENERAL");
+                        if (allowed) {
+                            eligibleTokens.push(...u.fcmTokens);
+                        }
+                    }
+                }
+
+                if (eligibleTokens.length > 0) {
+                    const pushResult = await sendMulticastPush({
+                        tokens: eligibleTokens,
+                        title: payload.title,
+                        body: payload.message,
+                        image: payload.image,
+                        link: payload.link,
+                        data: {
+                            notificationType: payload.type || "GENERAL",
+                            ...(payload.data || {}),
+                        },
+                    });
+
+                    if (pushResult.failedTokens.length > 0) {
+                        await UserModel.updateMany(
+                            { fcmTokens: { $in: pushResult.failedTokens } },
+                            { $pull: { fcmTokens: { $in: pushResult.failedTokens } } },
+                        );
+                    }
+                }
+            } catch (broadcastPushErr) {
+                console.error("❌ [Broadcast FCM Push Error]:", broadcastPushErr);
+            }
+        })();
 
         return {
             message: `Broadcast notification delivered successfully to ${users.length} users.`,

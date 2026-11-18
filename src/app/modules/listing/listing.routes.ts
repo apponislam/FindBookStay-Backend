@@ -41,33 +41,13 @@ router.get("/:idOrSlug", checkAuth, listingControllers.getListingByIdOrSlug);
 // ==========================================
 
 // Create new listing (with multipart image upload & Sharp WebP optimization)
-router.post(
-    "/",
-    auth,
-    authorize(["USER", "ADMIN"]),
-    uploadListingImages,
-    validateRequest(listingValidations.createListingZodSchema),
-    listingControllers.createListing
-);
+router.post("/", auth, authorize(["USER", "ADMIN"]), uploadListingImages, validateRequest(listingValidations.createListingZodSchema), listingControllers.createListing);
 
 // Update listing (Owner or Admin)
-router.patch(
-    "/:id",
-    auth,
-    authorize(["USER", "ADMIN"]),
-    uploadListingImages,
-    validateRequest(listingValidations.updateListingZodSchema),
-    listingControllers.updateListing
-);
+router.patch("/:id", auth, authorize(["USER", "ADMIN"]), uploadListingImages, validateRequest(listingValidations.updateListingZodSchema), listingControllers.updateListing);
 
 // Update listing availability status (AVAILABLE, BOOKED, RENTED, SOLD)
-router.patch(
-    "/:id/availability",
-    auth,
-    authorize(["USER", "ADMIN"]),
-    validateRequest(listingValidations.updateAvailabilityStatusZodSchema),
-    listingControllers.updateAvailabilityStatus
-);
+router.patch("/:id/availability", auth, authorize(["USER", "ADMIN"]), validateRequest(listingValidations.updateAvailabilityStatusZodSchema), listingControllers.updateAvailabilityStatus);
 
 // Soft delete listing (Owner or Admin)
 router.delete("/:id", auth, authorize(["USER", "ADMIN"]), listingControllers.deleteListing);
@@ -77,13 +57,7 @@ router.delete("/:id", auth, authorize(["USER", "ADMIN"]), listingControllers.del
 // ==========================================
 
 // Approve or Reject listing
-router.patch(
-    "/:id/approve-reject",
-    auth,
-    authorize(["ADMIN"]),
-    validateRequest(listingValidations.approveOrRejectListingZodSchema),
-    listingControllers.approveOrRejectListing
-);
+router.patch("/:id/approve-reject", auth, authorize(["ADMIN"]), validateRequest(listingValidations.approveOrRejectListingZodSchema), listingControllers.approveOrRejectListing);
 
 // Toggle Featured Status
 router.patch("/:id/toggle-feature", auth, authorize(["ADMIN"]), listingControllers.toggleFeatureStatus);
@@ -92,4 +66,3 @@ router.patch("/:id/toggle-feature", auth, authorize(["ADMIN"]), listingControlle
 router.patch("/:id/toggle-verify", auth, authorize(["ADMIN"]), listingControllers.toggleVerification);
 
 export const listingRoutes = router;
-

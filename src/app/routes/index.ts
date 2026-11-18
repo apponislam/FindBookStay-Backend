@@ -13,6 +13,7 @@ import { messageRoutes } from "../modules/message/message.routes";
 import { settingsRoutes } from "../modules/settings/settings.routes";
 import { siteSettingsRoutes } from "../modules/siteSettings/siteSettings.routes";
 import { notificationRoutes } from "../modules/notification/notification.routes";
+import { listingViewRoutes } from "../modules/listingView/listingView.routes";
 import { swaggerRouter } from "../docs/swagger";
 
 const router = express.Router();
@@ -25,6 +26,10 @@ const moduleRoutes = [
     {
         path: "/listings",
         route: listingRoutes,
+    },
+    {
+        path: "/listing-views",
+        route: listingViewRoutes,
     },
     {
         path: "/reviews",

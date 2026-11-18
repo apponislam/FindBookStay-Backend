@@ -9,6 +9,7 @@ import {
     AvailabilityStatus,
 } from "./listing.interface";
 import { ListingModel } from "./listing.model";
+import { listingViewServices } from "../listingView/listingView.services";
 import { UserModel } from "../auth/auth.model";
 import { activityLogServices } from "../activityLog/activityLog.services";
 
@@ -113,7 +114,28 @@ const createListing = async (
 };
 
 /**
- * Get all listings with advanced filtering, full-text search, geo-radius, and pagination
+ * Helpers for robust filter parsing
+ */
+const toBoolean = (val: any): boolean | undefined => {
+    if (val === undefined || val === null || val === "") return undefined;
+    if (typeof val === "boolean") return val;
+    const str = String(val).toLowerCase().trim();
+    if (str === "true" || str === "1") return true;
+    if (str === "false" || str === "0") return false;
+    return undefined;
+};
+
+const toArray = (val: any): string[] => {
+    if (!val) return [];
+    if (Array.isArray(val)) return val.map((s) => String(s).trim()).filter(Boolean);
+    return String(val)
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+};
+
+/**
+ * Get all listings with deep filtering across all verticals, full-text search, geo-radius, and pagination
  */
 const getAllListings = async (
     filters: Record<string, any>,
@@ -121,156 +143,406 @@ const getAllListings = async (
 ) => {
     const query: any = { isDeleted: false };
 
-    // 1. Category and SubCategory
+    // 1. Category and SubCategory (supports single value or comma-separated list)
     if (filters.category) {
-        query.category = filters.category;
+        const categories = toArray(filters.category);
+        if (categories.length === 1) {
+            query.category = categories[0];
+        } else if (categories.length > 1) {
+            query.category = { $in: categories };
+        }
     }
-    if (filters.subCategory) {
-        query.subCategory = filters.subCategory;
+    if (filters.subCategory || filters.subCategories) {
+        const subCategories = toArray(filters.subCategory || filters.subCategories);
+        if (subCategories.length === 1) {
+            query.subCategory = subCategories[0];
+        } else if (subCategories.length > 1) {
+            query.subCategory = { $in: subCategories };
+        }
     }
 
     // 2. Status handling:
-    // If an Admin asks for a specific status, honor it.
-    // If not specified or called by public user, strictly return ACTIVE listings.
+    // If an Admin asks for specific status(es), honor them.
+    // Public / non-admin requests strictly return ACTIVE listings.
     if (filters.status && reqUser?.role === "ADMIN") {
-        query.status = filters.status;
+        const statuses = toArray(filters.status);
+        if (statuses.length === 1) {
+            query.status = statuses[0];
+        } else if (statuses.length > 1) {
+            query.status = { $in: statuses };
+        }
     } else {
         query.status = ListingStatus.ACTIVE;
     }
 
-    // 3. Availability Status
+    // 3. Availability Status (AVAILABLE, BOOKED, RENTED, SOLD)
     if (filters.availabilityStatus) {
-        query.availabilityStatus = filters.availabilityStatus;
+        const availabilities = toArray(filters.availabilityStatus);
+        if (availabilities.length === 1) {
+            query.availabilityStatus = availabilities[0];
+        } else if (availabilities.length > 1) {
+            query.availabilityStatus = { $in: availabilities };
+        }
     }
 
-    // 4. Pricing Range
+    // 4. Pricing Range & Currency
     if (filters.minPrice !== undefined || filters.maxPrice !== undefined) {
         query.price = {};
-        if (filters.minPrice !== undefined) {
+        if (filters.minPrice !== undefined && !isNaN(Number(filters.minPrice))) {
             query.price.$gte = Number(filters.minPrice);
         }
-        if (filters.maxPrice !== undefined) {
+        if (filters.maxPrice !== undefined && !isNaN(Number(filters.maxPrice))) {
             query.price.$lte = Number(filters.maxPrice);
         }
     }
     if (filters.priceUnit) {
-        query.priceUnit = filters.priceUnit;
+        const units = toArray(filters.priceUnit);
+        query.priceUnit = units.length === 1 ? units[0] : { $in: units };
     }
-    if (filters.isNegotiable !== undefined) {
-        query.isNegotiable = filters.isNegotiable === true || String(filters.isNegotiable) === "true";
+    if (filters.currency) {
+        query.currency = String(filters.currency).toUpperCase().trim();
+    }
+    const isNegotiable = toBoolean(filters.isNegotiable);
+    if (isNegotiable !== undefined) {
+        query.isNegotiable = isNegotiable;
+    }
+    if (filters.maxDeposit !== undefined || filters.securityDeposit !== undefined) {
+        const dep = Number(filters.maxDeposit ?? filters.securityDeposit);
+        if (!isNaN(dep)) {
+            query.securityDeposit = { $lte: dep };
+        }
     }
 
     // 5. Location Search
     if (filters.city) {
-        query["location.city"] = { $regex: filters.city, $options: "i" };
+        query["location.city"] = { $regex: String(filters.city).trim(), $options: "i" };
     }
     if (filters.area) {
-        query["location.area"] = { $regex: filters.area, $options: "i" };
+        query["location.area"] = { $regex: String(filters.area).trim(), $options: "i" };
+    }
+    if (filters.state) {
+        query["location.state"] = { $regex: String(filters.state).trim(), $options: "i" };
     }
     if (filters.country) {
-        query["location.country"] = { $regex: filters.country, $options: "i" };
+        query["location.country"] = { $regex: String(filters.country).trim(), $options: "i" };
+    }
+    if (filters.zipCode) {
+        query["location.zipCode"] = { $regex: String(filters.zipCode).trim(), $options: "i" };
     }
 
     // 6. Geospatial Radius Search ($geoWithin / $centerSphere)
     if (filters.lat !== undefined && filters.lng !== undefined) {
-        const radiusInKm = Number(filters.radiusInKm) || 10;
-        const radiusInRadians = radiusInKm / 6378.1; // Earth radius in km
-        query["location.geo"] = {
-            $geoWithin: {
-                $centerSphere: [[Number(filters.lng), Number(filters.lat)], radiusInRadians],
-            },
-        };
+        const lat = Number(filters.lat);
+        const lng = Number(filters.lng);
+        if (!isNaN(lat) && !isNaN(lng)) {
+            const radiusInKm = Math.max(0.5, Number(filters.radiusInKm || filters.radius) || 10);
+            const radiusInRadians = radiusInKm / 6378.1;
+            query["location.geo"] = {
+                $geoWithin: {
+                    $centerSphere: [[lng, lat], radiusInRadians],
+                },
+            };
+        }
     }
 
-    // 7. Keyword Search (title, description, area, city)
-    const searchTerm = filters.searchTerm;
-    if (searchTerm && typeof searchTerm === "string" && searchTerm.trim().length > 0) {
-        const term = searchTerm.trim();
+    // 7. Keyword Search across multiple fields
+    const rawSearch = filters.searchTerm || filters.search || filters.q;
+    if (rawSearch && typeof rawSearch === "string" && rawSearch.trim().length > 0) {
+        const term = rawSearch.trim();
         query.$or = [
             { title: { $regex: term, $options: "i" } },
             { description: { $regex: term, $options: "i" } },
             { "location.address": { $regex: term, $options: "i" } },
             { "location.area": { $regex: term, $options: "i" } },
             { "location.city": { $regex: term, $options: "i" } },
+            { "propertyDetails.developerName": { $regex: term, $options: "i" } },
         ];
     }
 
-    // 8. Badges & Attributes
-    if (filters.isFeatured !== undefined) {
-        query.isFeatured = filters.isFeatured === true || String(filters.isFeatured) === "true";
+    // 8. Badges, Verification & Quality Flags
+    const isFeatured = toBoolean(filters.isFeatured);
+    if (isFeatured !== undefined) {
+        query.isFeatured = isFeatured;
     }
-    if (filters.isVerified !== undefined) {
-        query.isVerified = filters.isVerified === true || String(filters.isVerified) === "true";
+    const isVerified = toBoolean(filters.isVerified);
+    if (isVerified !== undefined) {
+        query.isVerified = isVerified;
+    }
+    const bookingEnabled = toBoolean(filters.bookingEnabled);
+    if (bookingEnabled !== undefined) {
+        query.bookingEnabled = bookingEnabled;
+    }
+    if (filters.minRating !== undefined && !isNaN(Number(filters.minRating))) {
+        query.ratingAverage = { $gte: Number(filters.minRating) };
+    }
+    if (filters.minReviews !== undefined && !isNaN(Number(filters.minReviews))) {
+        query.totalReviews = { $gte: Number(filters.minReviews) };
     }
 
-    // Amenities
+    // 9. Amenities & Rules
     if (filters.amenities) {
-        const amenitiesList = Array.isArray(filters.amenities)
-            ? filters.amenities
-            : String(filters.amenities).split(",").map((s) => s.trim());
+        const amenitiesList = toArray(filters.amenities);
         if (amenitiesList.length > 0) {
-            query.amenities = { $all: amenitiesList };
+            query.amenities = filters.amenitiesMatch === "any" ? { $in: amenitiesList } : { $all: amenitiesList };
+        }
+    }
+    if (filters.rules) {
+        const rulesList = toArray(filters.rules);
+        if (rulesList.length > 0) {
+            query.rules = { $in: rulesList };
         }
     }
 
-    // 9. Vertical-Specific Filters
-    // HOME
-    if (filters.targetTenant) query["homeDetails.targetTenant"] = filters.targetTenant;
-    if (filters.rentType) query["homeDetails.rentType"] = filters.rentType;
-    if (filters.bedrooms !== undefined) query["homeDetails.bedrooms"] = { $gte: Number(filters.bedrooms) };
-    if (filters.bathrooms !== undefined) query["homeDetails.bathrooms"] = { $gte: Number(filters.bathrooms) };
-    if (filters.isFurnished !== undefined) {
-        query["homeDetails.isFurnished"] = filters.isFurnished === true || String(filters.isFurnished) === "true";
+    // 10. Publisher / Owner Filtering
+    if (filters.createdBy && Types.ObjectId.isValid(filters.createdBy)) {
+        query.createdBy = new Types.ObjectId(filters.createdBy);
+    }
+    if (filters.owner && Types.ObjectId.isValid(filters.owner)) {
+        query.owner = new Types.ObjectId(filters.owner);
     }
 
-    // STAY
-    if (filters.stayType) query["stayDetails.stayType"] = filters.stayType;
-    if (filters.roomType) query["stayDetails.roomType"] = filters.roomType;
-    if (filters.maxGuests !== undefined) query["stayDetails.maxGuests"] = { $gte: Number(filters.maxGuests) };
-    if (filters.freeBreakfast !== undefined) {
-        query["stayDetails.freeBreakfast"] = filters.freeBreakfast === true || String(filters.freeBreakfast) === "true";
+    // 11. Vertical-Specific Filters
+    // HOME Details
+    if (filters.targetTenant) {
+        const tenants = toArray(filters.targetTenant);
+        query["homeDetails.targetTenant"] = tenants.length === 1 ? tenants[0] : { $in: tenants };
+    }
+    if (filters.rentType) {
+        const rents = toArray(filters.rentType);
+        query["homeDetails.rentType"] = rents.length === 1 ? rents[0] : { $in: rents };
+    }
+    if (filters.bedrooms !== undefined || filters.minBedrooms !== undefined || filters.maxBedrooms !== undefined) {
+        const minBeds = Number(filters.minBedrooms ?? filters.bedrooms);
+        const maxBeds = Number(filters.maxBedrooms);
+        const bedQuery: Record<string, number> = {};
+        if (!isNaN(minBeds)) bedQuery.$gte = minBeds;
+        if (!isNaN(maxBeds)) bedQuery.$lte = maxBeds;
+        if (Object.keys(bedQuery).length > 0) query["homeDetails.bedrooms"] = bedQuery;
+    }
+    if (filters.bathrooms !== undefined || filters.minBathrooms !== undefined) {
+        const baths = Number(filters.minBathrooms ?? filters.bathrooms);
+        if (!isNaN(baths)) query["homeDetails.bathrooms"] = { $gte: baths };
+    }
+    if (filters.balconies !== undefined || filters.minBalconies !== undefined) {
+        const balcs = Number(filters.minBalconies ?? filters.balconies);
+        if (!isNaN(balcs)) query["homeDetails.balconies"] = { $gte: balcs };
+    }
+    if (filters.floorLevel !== undefined || filters.minFloor !== undefined || filters.maxFloor !== undefined) {
+        const minFl = Number(filters.minFloor ?? filters.floorLevel);
+        const maxFl = Number(filters.maxFloor);
+        const flQuery: Record<string, number> = {};
+        if (!isNaN(minFl)) flQuery.$gte = minFl;
+        if (!isNaN(maxFl)) flQuery.$lte = maxFl;
+        if (Object.keys(flQuery).length > 0) query["homeDetails.floorLevel"] = flQuery;
+    }
+    const isFurnished = toBoolean(filters.isFurnished);
+    if (isFurnished !== undefined) query["homeDetails.isFurnished"] = isFurnished;
+
+    const attachedBath = toBoolean(filters.attachedBath);
+    if (attachedBath !== undefined) query["homeDetails.attachedBath"] = attachedBath;
+
+    const mealSystemAvailable = toBoolean(filters.mealSystemAvailable);
+    if (mealSystemAvailable !== undefined) query["homeDetails.mealSystemAvailable"] = mealSystemAvailable;
+
+    const hasParking = toBoolean(filters.hasParking);
+    if (hasParking !== undefined) {
+        query["homeDetails.parkingSpaces"] = hasParking ? { $gt: 0 } : 0;
+    } else if (filters.parkingSpaces !== undefined || filters.minParkingSpaces !== undefined) {
+        const ps = Number(filters.minParkingSpaces ?? filters.parkingSpaces);
+        if (!isNaN(ps)) query["homeDetails.parkingSpaces"] = { $gte: ps };
     }
 
-    // TURF
-    if (filters.sportType) query["turfDetails.sportType"] = filters.sportType;
-    if (filters.turfSize) query["turfDetails.turfSize"] = filters.turfSize;
-    if (filters.surfaceType) query["turfDetails.surfaceType"] = filters.surfaceType;
-    if (filters.hasFloodlights !== undefined) {
-        query["turfDetails.hasFloodlights"] = filters.hasFloodlights === true || String(filters.hasFloodlights) === "true";
+    if (filters.availableFrom || filters.availableBefore) {
+        const availDate = new Date(filters.availableBefore || filters.availableFrom);
+        if (!isNaN(availDate.getTime())) {
+            query["homeDetails.availableFrom"] = { $lte: availDate };
+        }
     }
 
-    // PROPERTY
-    if (filters.propertyType) query["propertyDetails.propertyType"] = filters.propertyType;
-    if (filters.ownershipType) query["propertyDetails.ownershipType"] = filters.ownershipType;
-    if (filters.completionStatus) query["propertyDetails.completionStatus"] = filters.completionStatus;
+    const viewingAvailable = toBoolean(filters.viewingAvailable);
+    if (viewingAvailable !== undefined) query["homeDetails.viewingAvailable"] = viewingAvailable;
 
-    // 10. Pagination & Sorting
+    // STAY Details
+    if (filters.stayType) {
+        const stays = toArray(filters.stayType);
+        query["stayDetails.stayType"] = stays.length === 1 ? stays[0] : { $in: stays };
+    }
+    if (filters.roomType) {
+        const rooms = toArray(filters.roomType);
+        query["stayDetails.roomType"] = rooms.length === 1 ? rooms[0] : { $in: rooms };
+    }
+    if (filters.maxGuests !== undefined || filters.guests !== undefined) {
+        const g = Number(filters.guests ?? filters.maxGuests);
+        if (!isNaN(g)) query["stayDetails.maxGuests"] = { $gte: g };
+    }
+    if (filters.bedCount !== undefined || filters.minBeds !== undefined) {
+        const b = Number(filters.minBeds ?? filters.bedCount);
+        if (!isNaN(b)) query["stayDetails.bedCount"] = { $gte: b };
+    }
+    const freeBreakfast = toBoolean(filters.freeBreakfast);
+    if (freeBreakfast !== undefined) query["stayDetails.freeBreakfast"] = freeBreakfast;
+
+    const childrenAllowed = toBoolean(filters.childrenAllowed);
+    if (childrenAllowed !== undefined) query["stayDetails.childrenAllowed"] = childrenAllowed;
+
+    const petsAllowed = toBoolean(filters.petsAllowed);
+    if (petsAllowed !== undefined) query["stayDetails.petsAllowed"] = petsAllowed;
+
+    const reception24 = toBoolean(filters.receptionAvailable24Hours);
+    if (reception24 !== undefined) query["stayDetails.receptionAvailable24Hours"] = reception24;
+
+    if (filters.cancellationPolicy) {
+        const policies = toArray(filters.cancellationPolicy);
+        query["stayDetails.cancellationPolicy"] = policies.length === 1 ? policies[0] : { $in: policies };
+    }
+
+    // TURF Details
+    if (filters.sportType) {
+        const sports = toArray(filters.sportType);
+        query["turfDetails.sportType"] = sports.length === 1 ? sports[0] : { $in: sports };
+    }
+    if (filters.turfSize) {
+        const sizes = toArray(filters.turfSize);
+        query["turfDetails.turfSize"] = sizes.length === 1 ? sizes[0] : { $in: sizes };
+    }
+    if (filters.surfaceType) {
+        const surfaces = toArray(filters.surfaceType);
+        query["turfDetails.surfaceType"] = surfaces.length === 1 ? surfaces[0] : { $in: surfaces };
+    }
+    const hasFloodlights = toBoolean(filters.hasFloodlights);
+    if (hasFloodlights !== undefined) query["turfDetails.hasFloodlights"] = hasFloodlights;
+
+    const equipRental = toBoolean(filters.equipmentRentalAvailable);
+    if (equipRental !== undefined) query["turfDetails.equipmentRentalAvailable"] = equipRental;
+
+    const equipIncluded = toBoolean(filters.equipmentIncluded);
+    if (equipIncluded !== undefined) query["turfDetails.equipmentIncluded"] = equipIncluded;
+
+    const changingRoom = toBoolean(filters.changingRoomAvailable);
+    if (changingRoom !== undefined) query["turfDetails.changingRoomAvailable"] = changingRoom;
+
+    const shower = toBoolean(filters.showerAvailable);
+    if (shower !== undefined) query["turfDetails.showerAvailable"] = shower;
+
+    const turfParking = toBoolean(filters.parkingAvailable);
+    if (turfParking !== undefined) query["turfDetails.parkingAvailable"] = turfParking;
+
+    if (filters.capacity !== undefined || filters.minCapacity !== undefined) {
+        const cap = Number(filters.minCapacity ?? filters.capacity);
+        if (!isNaN(cap)) query["turfDetails.capacity"] = { $gte: cap };
+    }
+
+    // PROPERTY Details
+    if (filters.propertyType) {
+        const ptypes = toArray(filters.propertyType);
+        query["propertyDetails.propertyType"] = ptypes.length === 1 ? ptypes[0] : { $in: ptypes };
+    }
+    if (filters.ownershipType) {
+        const otypes = toArray(filters.ownershipType);
+        query["propertyDetails.ownershipType"] = otypes.length === 1 ? otypes[0] : { $in: otypes };
+    }
+    if (filters.completionStatus) {
+        const cstatuses = toArray(filters.completionStatus);
+        query["propertyDetails.completionStatus"] = cstatuses.length === 1 ? cstatuses[0] : { $in: cstatuses };
+    }
+    const deedReady = toBoolean(filters.registeredDeedReady);
+    if (deedReady !== undefined) query["propertyDetails.registeredDeedReady"] = deedReady;
+
+    if (filters.developerName) {
+        query["propertyDetails.developerName"] = { $regex: String(filters.developerName).trim(), $options: "i" };
+    }
+    if (filters.facingDirection) {
+        query["propertyDetails.facingDirection"] = { $regex: String(filters.facingDirection).trim(), $options: "i" };
+    }
+    if (filters.propertyBedrooms !== undefined) {
+        const pbeds = Number(filters.propertyBedrooms);
+        if (!isNaN(pbeds)) query["propertyDetails.bedrooms"] = { $gte: pbeds };
+    }
+    if (filters.propertyBathrooms !== undefined) {
+        const pbaths = Number(filters.propertyBathrooms);
+        if (!isNaN(pbaths)) query["propertyDetails.bathrooms"] = { $gte: pbaths };
+    }
+
+    if (filters.minFlatSize !== undefined || filters.maxFlatSize !== undefined) {
+        const flatQ: Record<string, number> = {};
+        if (filters.minFlatSize !== undefined && !isNaN(Number(filters.minFlatSize))) flatQ.$gte = Number(filters.minFlatSize);
+        if (filters.maxFlatSize !== undefined && !isNaN(Number(filters.maxFlatSize))) flatQ.$lte = Number(filters.maxFlatSize);
+        if (Object.keys(flatQ).length > 0) query["propertyDetails.flatSizeSqFt"] = flatQ;
+    }
+    if (filters.minLandArea !== undefined || filters.maxLandArea !== undefined) {
+        const landQ: Record<string, number> = {};
+        if (filters.minLandArea !== undefined && !isNaN(Number(filters.minLandArea))) landQ.$gte = Number(filters.minLandArea);
+        if (filters.maxLandArea !== undefined && !isNaN(Number(filters.maxLandArea))) landQ.$lte = Number(filters.maxLandArea);
+        if (Object.keys(landQ).length > 0) query["propertyDetails.landAreaSqFt"] = landQ;
+    }
+    if (filters.minArea !== undefined || filters.maxArea !== undefined) {
+        const minA = Number(filters.minArea);
+        const maxA = Number(filters.maxArea);
+        const areaConditions: any[] = [];
+        const flatCond: any = {};
+        const landCond: any = {};
+        if (!isNaN(minA)) {
+            flatCond.$gte = minA;
+            landCond.$gte = minA;
+        }
+        if (!isNaN(maxA)) {
+            flatCond.$lte = maxA;
+            landCond.$lte = maxA;
+        }
+        if (Object.keys(flatCond).length > 0) areaConditions.push({ "propertyDetails.flatSizeSqFt": flatCond });
+        if (Object.keys(landCond).length > 0) areaConditions.push({ "propertyDetails.landAreaSqFt": landCond });
+        if (areaConditions.length > 0) {
+            query.$and = query.$and || [];
+            query.$and.push({ $or: areaConditions });
+        }
+    }
+
+    // 12. Pagination & High-Performance Sorting
     const page = Math.max(1, Number(filters.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(filters.limit) || 12));
     const skip = (page - 1) * limit;
 
     let sort: any = { isFeatured: -1, createdAt: -1 };
-    if (filters.sortBy) {
-        const order = filters.sortOrder === "asc" ? 1 : -1;
-        if (filters.sortBy === "price") {
-            sort = { price: order };
-        } else if (filters.sortBy === "viewsCount") {
-            sort = { viewsCount: order };
-        } else if (filters.sortBy === "ratingAverage") {
-            sort = { ratingAverage: order };
-        } else if (filters.sortBy === "createdAt") {
-            sort = { createdAt: order };
-        }
+    const sortBy = String(filters.sortBy || "").trim();
+    const sortOrder = String(filters.sortOrder || "").toLowerCase() === "asc" ? 1 : -1;
+
+    if (sortBy === "price_asc" || (sortBy === "price" && sortOrder === 1)) {
+        sort = { price: 1, createdAt: -1 };
+    } else if (sortBy === "price_desc" || (sortBy === "price" && sortOrder === -1)) {
+        sort = { price: -1, createdAt: -1 };
+    } else if (sortBy === "rating" || sortBy === "ratingAverage" || sortBy === "top_rated") {
+        sort = { ratingAverage: -1, totalReviews: -1 };
+    } else if (sortBy === "views" || sortBy === "viewsCount" || sortBy === "popular") {
+        sort = { viewsCount: -1, createdAt: -1 };
+    } else if (sortBy === "newest" || (sortBy === "createdAt" && sortOrder === -1)) {
+        sort = { createdAt: -1 };
+    } else if (sortBy === "oldest" || (sortBy === "createdAt" && sortOrder === 1)) {
+        sort = { createdAt: 1 };
+    } else if (sortBy === "featured") {
+        sort = { isFeatured: -1, createdAt: -1 };
     }
 
+    // 13. Optional Field Selection / Projection
+    let projection = "";
+    if (filters.fields || filters.select) {
+        projection = toArray(filters.fields || filters.select).join(" ");
+    }
+
+    let findQuery = ListingModel.find(query)
+        .sort(sort)
+        .skip(skip)
+        .limit(limit)
+        .populate("createdBy", "name email phone profileImage")
+        .populate("owner", "name email phone profileImage")
+        .lean();
+
+    if (projection) {
+        findQuery = findQuery.select(projection);
+    }
+
+    // Concurrent query and count for low latency
     const [listings, total] = await Promise.all([
-        ListingModel.find(query)
-            .sort(sort)
-            .skip(skip)
-            .limit(limit)
-            .populate("createdBy", "name email phone profileImage")
-            .populate("owner", "name email phone profileImage")
-            .lean(),
+        findQuery,
         ListingModel.countDocuments(query),
     ]);
 
@@ -290,11 +562,12 @@ const getAllListings = async (
 };
 
 /**
- * Get listing by ID or Slug (with automatic view counter increment)
+ * Get listing by ID or Slug (with background deduplicated unique view tracking)
  */
 const getListingByIdOrSlug = async (
     idOrSlug: string,
-    reqUser?: { _id?: string; role?: string }
+    reqUser?: { _id?: string; role?: string },
+    meta?: { ip?: string; userAgent?: string; visitorId?: string }
 ) => {
     const isId = Types.ObjectId.isValid(idOrSlug);
     const filter: any = isId
@@ -322,9 +595,16 @@ const getListingByIdOrSlug = async (
         }
     }
 
-    // Increment views count atomically
-    await ListingModel.findByIdAndUpdate(listing._id, { $inc: { viewsCount: 1 } });
-    listing.viewsCount += 1;
+    // Fire-and-forget unique view tracking in background (zero latency, deduplicated per 24h, excludes owner/admin)
+    setImmediate(() => {
+        listingViewServices.recordListingView(
+            listing._id as Types.ObjectId,
+            listing.createdBy,
+            listing.owner,
+            reqUser,
+            meta
+        );
+    });
 
     return listing;
 };

@@ -82,7 +82,13 @@ const getListingByIdOrSlug = catchAsync(async (req: Request, res: Response) => {
     const idOrSlug = req.params.idOrSlug as string;
     const user = req.user as any;
     const reqUser = user?._id ? { _id: user._id.toString(), role: user.role } : undefined;
-    const result = await listingServices.getListingByIdOrSlug(idOrSlug, reqUser);
+    const meta = {
+        ip: req.ip || (req.headers["x-forwarded-for"] as string) || req.socket.remoteAddress,
+        userAgent: req.get("user-agent"),
+        visitorId: (req.headers["x-visitor-id"] as string) || (req.query.visitorId as string),
+    };
+
+    const result = await listingServices.getListingByIdOrSlug(idOrSlug, reqUser, meta);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,

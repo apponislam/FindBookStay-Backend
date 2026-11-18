@@ -475,15 +475,26 @@ ListingSchema.pre("validate", async function () {
 // Indexes for High Performance Queries
 ListingSchema.index({ "location.geo": "2dsphere" });
 ListingSchema.index({ slug: 1 }, { unique: true });
+
+// Core marketplace query indexes (Equality, Sort, Range)
+ListingSchema.index({ category: 1, status: 1, isDeleted: 1, isFeatured: -1, createdAt: -1 });
 ListingSchema.index({ category: 1, subCategory: 1, status: 1, isDeleted: 1 });
+ListingSchema.index({ category: 1, status: 1, isDeleted: 1, price: 1 });
+ListingSchema.index({ "location.city": 1, category: 1, status: 1, isDeleted: 1 });
+ListingSchema.index({ "location.city": 1, "location.area": 1 });
 ListingSchema.index({ status: 1, isDeleted: 1, createdAt: -1 });
-ListingSchema.index({ price: 1, category: 1 });
-ListingSchema.index({ isFeatured: 1, status: 1, isDeleted: 1 });
+ListingSchema.index({ status: 1, availabilityStatus: 1, isDeleted: 1 });
+ListingSchema.index({ isFeatured: 1, status: 1, isDeleted: 1, createdAt: -1 });
 ListingSchema.index({ isVerified: 1, status: 1, isDeleted: 1 });
+ListingSchema.index({ category: 1, status: 1, isDeleted: 1, ratingAverage: -1 });
 ListingSchema.index({ createdBy: 1, isDeleted: 1 });
 ListingSchema.index({ owner: 1, isDeleted: 1 });
-ListingSchema.index({ "location.city": 1, "location.area": 1 });
-ListingSchema.index({ status: 1, availabilityStatus: 1, isDeleted: 1 });
+
+// Vertical specific compound indexes
+ListingSchema.index({ category: 1, "homeDetails.rentType": 1, "homeDetails.targetTenant": 1, status: 1, isDeleted: 1 });
+ListingSchema.index({ category: 1, "stayDetails.stayType": 1, "stayDetails.roomType": 1, status: 1, isDeleted: 1 });
+ListingSchema.index({ category: 1, "turfDetails.sportType": 1, "turfDetails.turfSize": 1, status: 1, isDeleted: 1 });
+ListingSchema.index({ category: 1, "propertyDetails.propertyType": 1, "propertyDetails.completionStatus": 1, status: 1, isDeleted: 1 });
 
 // Full-text search index for keyword searching
 ListingSchema.index({

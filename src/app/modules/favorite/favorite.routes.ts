@@ -11,13 +11,7 @@ const router = Router();
 router.get("/count/:listingId", favoriteControllers.getListingBookmarkCount);
 
 // Authenticated: 1-click toggle favorite (Save / Remove)
-router.post(
-    "/toggle",
-    auth,
-    authorize(["USER", "ADMIN"]),
-    validateRequest(favoriteValidations.toggleFavoriteZodSchema),
-    favoriteControllers.toggleFavorite
-);
+router.post("/toggle", auth, authorize(["USER", "ADMIN"]), validateRequest(favoriteValidations.toggleFavoriteZodSchema), favoriteControllers.toggleFavorite);
 
 // Authenticated: Get my saved favorite listings
 router.get("/my-favorites", auth, authorize(["USER", "ADMIN"]), favoriteControllers.getMyFavorites);
@@ -26,16 +20,9 @@ router.get("/my-favorites", auth, authorize(["USER", "ADMIN"]), favoriteControll
 router.get("/check/:listingId", auth, authorize(["USER", "ADMIN"]), favoriteControllers.checkIsFavorite);
 
 // Authenticated: Update note on a saved listing
-router.patch(
-    "/:listingId/note",
-    auth,
-    authorize(["USER", "ADMIN"]),
-    validateRequest(favoriteValidations.updateFavoriteNoteZodSchema),
-    favoriteControllers.updateFavoriteNote
-);
+router.patch("/:listingId/note", auth, authorize(["USER", "ADMIN"]), validateRequest(favoriteValidations.updateFavoriteNoteZodSchema), favoriteControllers.updateFavoriteNote);
 
 // Authenticated: Explicitly remove from favorites
 router.delete("/:listingId", auth, authorize(["USER", "ADMIN"]), favoriteControllers.removeFavorite);
 
 export const favoriteRoutes = router;
-

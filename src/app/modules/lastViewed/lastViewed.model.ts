@@ -14,14 +14,6 @@ const LastViewedItemSchema = new Schema<ILastViewedItem>(
             enum: Object.values(ListingCategory),
             required: [true, "Listing category is required."],
         },
-        subCategory: {
-            type: String,
-            trim: true,
-        },
-        listingType: {
-            type: String,
-            trim: true,
-        },
         viewedAt: {
             type: Date,
             default: Date.now,

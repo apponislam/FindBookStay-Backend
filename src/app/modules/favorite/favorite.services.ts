@@ -35,24 +35,10 @@ const toggleFavorite = async (userId: string, listingId: string, note?: string) 
             data: null,
         };
     } else {
-        // Determine vertical-specific listingType
-        let listingType: string | undefined;
-        if (listing.category === ListingCategory.HOME) {
-            listingType = listing.homeDetails?.rentType || listing.homeDetails?.targetTenant;
-        } else if (listing.category === ListingCategory.STAY) {
-            listingType = listing.stayDetails?.stayType || listing.stayDetails?.roomType;
-        } else if (listing.category === ListingCategory.TURF) {
-            listingType = listing.turfDetails?.sportType || listing.turfDetails?.turfSize;
-        } else if (listing.category === ListingCategory.PROPERTY) {
-            listingType = listing.propertyDetails?.propertyType || listing.propertyDetails?.completionStatus;
-        }
-
         const favorite = await FavoriteModel.create({
             user: targetUserId,
             listing: targetListingId,
             category: listing.category,
-            subCategory: listing.subCategory,
-            listingType,
             note,
         });
 
@@ -70,7 +56,7 @@ const toggleFavorite = async (userId: string, listingId: string, note?: string) 
 };
 
 /**
- * Get all favorite listings saved by current user (supports filtering by category / subCategory / listingType)
+ * Get all favorite listings saved by current user (supports filtering by category)
  */
 const getMyFavorites = async (userId: string, query: Record<string, any>) => {
     const targetUserId = new Types.ObjectId(userId);
@@ -78,12 +64,6 @@ const getMyFavorites = async (userId: string, query: Record<string, any>) => {
 
     if (query.category) {
         filter.category = query.category;
-    }
-    if (query.subCategory) {
-        filter.subCategory = query.subCategory;
-    }
-    if (query.listingType) {
-        filter.listingType = query.listingType;
     }
 
     const page = Math.max(1, Number(query.page) || 1);

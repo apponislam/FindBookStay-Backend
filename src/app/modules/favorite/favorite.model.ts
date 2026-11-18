@@ -17,15 +17,7 @@ const FavoriteSchema = new Schema<IFavorite>(
         category: {
             type: String,
             enum: Object.values(ListingCategory),
-            required: [true, "Listing category/type is required."],
-        },
-        subCategory: {
-            type: String,
-            trim: true,
-        },
-        listingType: {
-            type: String,
-            trim: true,
+            required: [true, "Listing category is required."],
         },
         note: {
             type: String,

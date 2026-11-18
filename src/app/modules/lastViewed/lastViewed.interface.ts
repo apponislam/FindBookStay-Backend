@@ -1,11 +1,9 @@
 import { Types } from "mongoose";
-import { ListingCategory, ListingSubCategory } from "../listing/listing.interface";
+import { ListingCategory } from "../listing/listing.interface";
 
 export interface ILastViewedItem {
     listing: Types.ObjectId;
     category: ListingCategory;
-    subCategory?: ListingSubCategory | string;
-    listingType?: string; // Vertical-specific type (e.g., stayType, propertyType, sportType, rentType)
     viewedAt: Date;
 }
 

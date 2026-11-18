@@ -7,14 +7,12 @@ import { lastViewedServices } from "./lastViewed.services";
 const recordLastViewed = catchAsync(async (req: Request, res: Response) => {
     const userId = (req.user as any)?._id?.toString();
     const listingId = req.params.listingId || req.body.listingId;
-    const { category, subCategory, listingType } = req.body || {};
+    const { category } = req.body || {};
 
     const result = await lastViewedServices.recordLastViewed(
         userId,
         listingId,
-        category,
-        subCategory,
-        listingType
+        category
     );
 
     sendResponse(res, {

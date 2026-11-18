@@ -12,37 +12,19 @@ import { ListingCategory } from "../listing/listing.interface";
 const recordLastViewed = async (
     userId: string | Types.ObjectId,
     listingId: string | Types.ObjectId,
-    explicitCategory?: ListingCategory,
-    explicitSubCategory?: string,
-    explicitListingType?: string
+    explicitCategory?: ListingCategory
 ) => {
     try {
         const userObjId = new Types.ObjectId(userId);
         const listingObjId = new Types.ObjectId(listingId);
 
         let category = explicitCategory;
-        let subCategory = explicitSubCategory;
-        let listingType = explicitListingType;
 
-        // Fetch listing metadata if not explicitly provided
+        // Fetch category from listing if not explicitly provided
         if (!category) {
-            const listing = await ListingModel.findById(listingObjId).select(
-                "category subCategory homeDetails stayDetails turfDetails propertyDetails"
-            );
+            const listing = await ListingModel.findById(listingObjId).select("category");
             if (!listing) return null;
-
             category = listing.category;
-            subCategory = listing.subCategory;
-
-            if (category === ListingCategory.HOME) {
-                listingType = listing.homeDetails?.rentType || listing.homeDetails?.targetTenant;
-            } else if (category === ListingCategory.STAY) {
-                listingType = listing.stayDetails?.stayType || listing.stayDetails?.roomType;
-            } else if (category === ListingCategory.TURF) {
-                listingType = listing.turfDetails?.sportType || listing.turfDetails?.turfSize;
-            } else if (category === ListingCategory.PROPERTY) {
-                listingType = listing.propertyDetails?.propertyType || listing.propertyDetails?.completionStatus;
-            }
         }
 
         // 1. Remove existing occurrence of this listing from user's history (prevents duplicates)
@@ -61,8 +43,6 @@ const recordLastViewed = async (
                             {
                                 listing: listingObjId,
                                 category: category as ListingCategory,
-                                subCategory,
-                                listingType,
                                 viewedAt: new Date(),
                             },
                         ],

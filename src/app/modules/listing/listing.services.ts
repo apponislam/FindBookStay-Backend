@@ -2,12 +2,7 @@ import { Types } from "mongoose";
 import httpStatus from "http-status";
 import crypto from "crypto";
 import ApiError from "../../../errors/ApiError";
-import {
-    IListing,
-    ListingCategory,
-    ListingStatus,
-    AvailabilityStatus,
-} from "./listing.interface";
+import { IListing, ListingCategory, ListingStatus, AvailabilityStatus } from "./listing.interface";
 import { ListingModel } from "./listing.model";
 import { listingViewServices } from "../listingView/listingView.services";
 import { lastViewedServices } from "../lastViewed/lastViewed.services";
@@ -38,12 +33,7 @@ const syncUserCategoryFlag = async (userId: Types.ObjectId, category: ListingCat
 /**
  * Create a new listing
  */
-const createListing = async (
-    userId: string,
-    userRole: string,
-    payload: Partial<IListing>,
-    meta?: { ip?: string; userAgent?: string }
-) => {
+const createListing = async (userId: string, userRole: string, payload: Partial<IListing>, meta?: { ip?: string; userAgent?: string }) => {
     const creatorId = new Types.ObjectId(userId);
     const ownerId = payload.owner ? new Types.ObjectId(payload.owner as any) : creatorId;
 
@@ -138,10 +128,7 @@ const toArray = (val: any): string[] => {
 /**
  * Get all listings with deep filtering across all verticals, full-text search, geo-radius, and pagination
  */
-const getAllListings = async (
-    filters: Record<string, any>,
-    reqUser?: { _id?: string; role?: string }
-) => {
+const getAllListings = async (filters: Record<string, any>, reqUser?: { _id?: string; role?: string }) => {
     const query: any = { isDeleted: false };
 
     // 1. Category and SubCategory (supports single value or comma-separated list)
@@ -250,14 +237,7 @@ const getAllListings = async (
     const rawSearch = filters.searchTerm || filters.search || filters.q;
     if (rawSearch && typeof rawSearch === "string" && rawSearch.trim().length > 0) {
         const term = rawSearch.trim();
-        query.$or = [
-            { title: { $regex: term, $options: "i" } },
-            { description: { $regex: term, $options: "i" } },
-            { "location.address": { $regex: term, $options: "i" } },
-            { "location.area": { $regex: term, $options: "i" } },
-            { "location.city": { $regex: term, $options: "i" } },
-            { "propertyDetails.developerName": { $regex: term, $options: "i" } },
-        ];
+        query.$or = [{ title: { $regex: term, $options: "i" } }, { description: { $regex: term, $options: "i" } }, { "location.address": { $regex: term, $options: "i" } }, { "location.area": { $regex: term, $options: "i" } }, { "location.city": { $regex: term, $options: "i" } }, { "propertyDetails.developerName": { $regex: term, $options: "i" } }];
     }
 
     // 8. Badges, Verification & Quality Flags
@@ -529,23 +509,14 @@ const getAllListings = async (
         projection = toArray(filters.fields || filters.select).join(" ");
     }
 
-    let findQuery = ListingModel.find(query)
-        .sort(sort)
-        .skip(skip)
-        .limit(limit)
-        .populate("createdBy", "name email phone profileImage")
-        .populate("owner", "name email phone profileImage")
-        .lean();
+    let findQuery = ListingModel.find(query).sort(sort).skip(skip).limit(limit).populate("createdBy", "name email phone profileImage").populate("owner", "name email phone profileImage").lean();
 
     if (projection) {
         findQuery = findQuery.select(projection);
     }
 
     // Concurrent query and count for low latency
-    const [listings, total] = await Promise.all([
-        findQuery,
-        ListingModel.countDocuments(query),
-    ]);
+    const [listings, total] = await Promise.all([findQuery, ListingModel.countDocuments(query)]);
 
     const totalPages = Math.ceil(total / limit) || 1;
 
@@ -565,19 +536,11 @@ const getAllListings = async (
 /**
  * Get listing by ID or Slug (with background deduplicated unique view tracking)
  */
-const getListingByIdOrSlug = async (
-    idOrSlug: string,
-    reqUser?: { _id?: string; role?: string },
-    meta?: { ip?: string; userAgent?: string; visitorId?: string }
-) => {
+const getListingByIdOrSlug = async (idOrSlug: string, reqUser?: { _id?: string; role?: string }, meta?: { ip?: string; userAgent?: string; visitorId?: string }) => {
     const isId = Types.ObjectId.isValid(idOrSlug);
-    const filter: any = isId
-        ? { $or: [{ _id: idOrSlug }, { slug: idOrSlug.toLowerCase() }], isDeleted: false }
-        : { slug: idOrSlug.toLowerCase(), isDeleted: false };
+    const filter: any = isId ? { $or: [{ _id: idOrSlug }, { slug: idOrSlug.toLowerCase() }], isDeleted: false } : { slug: idOrSlug.toLowerCase(), isDeleted: false };
 
-    const listing = await ListingModel.findOne(filter)
-        .populate("createdBy", "name email phone profileImage")
-        .populate("owner", "name email phone profileImage");
+    const listing = await ListingModel.findOne(filter).populate("createdBy", "name email phone profileImage").populate("owner", "name email phone profileImage");
 
     if (!listing) {
         throw new ApiError(httpStatus.NOT_FOUND, "The requested listing could not be found.");
@@ -589,31 +552,17 @@ const getListingByIdOrSlug = async (
         const isAdmin = reqUser?.role === "ADMIN";
 
         if (!isOwner && !isAdmin) {
-            throw new ApiError(
-                httpStatus.FORBIDDEN,
-                "This listing is currently pending approval or inactive and is not publicly visible."
-            );
+            throw new ApiError(httpStatus.FORBIDDEN, "This listing is currently pending approval or inactive and is not publicly visible.");
         }
     }
 
     // Fire-and-forget unique view tracking in background (zero latency, deduplicated per 24h, excludes owner/admin)
     setImmediate(() => {
-        listingViewServices.recordListingView(
-            listing._id as Types.ObjectId,
-            listing.createdBy,
-            listing.owner,
-            reqUser,
-            meta
-        );
+        listingViewServices.recordListingView(listing._id as Types.ObjectId, listing.createdBy, listing.owner, reqUser, meta);
 
         // If user is authenticated, also automatically track in their last viewed history (max 10 items)
         if (reqUser?._id) {
-            lastViewedServices.recordLastViewed(
-                reqUser._id,
-                listing._id as Types.ObjectId,
-                listing.category,
-                listing.subCategory
-            );
+            lastViewedServices.recordLastViewed(reqUser._id, listing._id as Types.ObjectId, listing.category);
         }
     });
 
@@ -635,22 +584,14 @@ const getMyListings = async (userId: string, filters: Record<string, any>) => {
 
     if (filters.searchTerm) {
         const term = filters.searchTerm.trim();
-        query.$or = [
-            { title: { $regex: term, $options: "i" } },
-            { description: { $regex: term, $options: "i" } },
-            { "location.address": { $regex: term, $options: "i" } },
-            { "location.city": { $regex: term, $options: "i" } },
-        ];
+        query.$or = [{ title: { $regex: term, $options: "i" } }, { description: { $regex: term, $options: "i" } }, { "location.address": { $regex: term, $options: "i" } }, { "location.city": { $regex: term, $options: "i" } }];
     }
 
     const page = Math.max(1, Number(filters.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(filters.limit) || 10));
     const skip = (page - 1) * limit;
 
-    const [listings, total] = await Promise.all([
-        ListingModel.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
-        ListingModel.countDocuments(query),
-    ]);
+    const [listings, total] = await Promise.all([ListingModel.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(), ListingModel.countDocuments(query)]);
 
     const totalPages = Math.ceil(total / limit) || 1;
 
@@ -670,13 +611,7 @@ const getMyListings = async (userId: string, filters: Record<string, any>) => {
 /**
  * Update listing
  */
-const updateListing = async (
-    id: string,
-    userId: string,
-    userRole: string,
-    payload: Partial<IListing>,
-    meta?: { ip?: string; userAgent?: string }
-) => {
+const updateListing = async (id: string, userId: string, userRole: string, payload: Partial<IListing>, meta?: { ip?: string; userAgent?: string }) => {
     if (!Types.ObjectId.isValid(id)) {
         throw new ApiError(httpStatus.BAD_REQUEST, "Invalid listing ID format.");
     }
@@ -741,12 +676,7 @@ const updateListing = async (
 /**
  * Soft delete listing
  */
-const deleteListing = async (
-    id: string,
-    userId: string,
-    userRole: string,
-    meta?: { ip?: string; userAgent?: string }
-) => {
+const deleteListing = async (id: string, userId: string, userRole: string, meta?: { ip?: string; userAgent?: string }) => {
     if (!Types.ObjectId.isValid(id)) {
         throw new ApiError(httpStatus.BAD_REQUEST, "Invalid listing ID format.");
     }
@@ -785,12 +715,7 @@ const deleteListing = async (
 /**
  * Approve or Reject Listing (Admin Only)
  */
-const approveOrRejectListing = async (
-    id: string,
-    adminId: string,
-    payload: { status: "ACTIVE" | "REJECTED"; rejectionReason?: string },
-    meta?: { ip?: string; userAgent?: string }
-) => {
+const approveOrRejectListing = async (id: string, adminId: string, payload: { status: "ACTIVE" | "REJECTED"; rejectionReason?: string }, meta?: { ip?: string; userAgent?: string }) => {
     if (!Types.ObjectId.isValid(id)) {
         throw new ApiError(httpStatus.BAD_REQUEST, "Invalid listing ID format.");
     }
@@ -809,8 +734,7 @@ const approveOrRejectListing = async (
         listing.rejectionReason = undefined;
     } else {
         listing.status = ListingStatus.REJECTED;
-        listing.rejectionReason =
-            payload.rejectionReason || "Listing does not comply with marketplace standards.";
+        listing.rejectionReason = payload.rejectionReason || "Listing does not comply with marketplace standards.";
     }
 
     await listing.save();
@@ -876,12 +800,7 @@ const toggleVerification = async (id: string, adminId: string) => {
 /**
  * Update Availability Status (Owner or Admin)
  */
-const updateAvailabilityStatus = async (
-    id: string,
-    userId: string,
-    userRole: string,
-    availabilityStatus: AvailabilityStatus
-) => {
+const updateAvailabilityStatus = async (id: string, userId: string, userRole: string, availabilityStatus: AvailabilityStatus) => {
     if (!Types.ObjectId.isValid(id)) {
         throw new ApiError(httpStatus.BAD_REQUEST, "Invalid listing ID format.");
     }

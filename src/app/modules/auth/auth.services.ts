@@ -129,7 +129,8 @@ const loginUser = async (data: { email: string; password: string; fcmToken?: str
 
     // Check if active
     if (!user.isActive) {
-        throw new ApiError(httpStatus.FORBIDDEN, "Your account has been deactivated. Please contact support for assistance.");
+        const reasonMsg = user.disabledReason ? ` Reason: "${user.disabledReason}".` : "";
+        throw new ApiError(httpStatus.FORBIDDEN, `Your account has been deactivated.${reasonMsg} Please contact support for assistance.`);
     }
 
     // Update last login and optionally add FCM device token if provided (capped at 5 recent devices)
@@ -604,6 +605,149 @@ const removeFcmToken = async (userId: string, fcmToken: string) => {
     return { message: "FCM token removed successfully." };
 };
 
+/**
+ * Validate availability/validity of email, phone number, and referral code.
+ * All 3 fields are optional; validates whatever is received and returns true/false per field.
+ */
+const checkFieldValidity = async (payload: {
+    email?: string;
+    phone?: string;
+    phoneNumber?: string;
+    referral?: string;
+    referralCode?: string;
+}) => {
+    const rawEmail = payload.email;
+    const rawPhone = payload.phone || payload.phoneNumber;
+    const rawReferral = payload.referral || payload.referralCode;
+
+    if (rawEmail === undefined && rawPhone === undefined && rawReferral === undefined) {
+        throw new ApiError(
+            httpStatus.BAD_REQUEST,
+            "Please provide at least one field to check: 'email', 'phone', or 'referral'."
+        );
+    }
+
+    const response: {
+        email?: { isValid: boolean; message: string };
+        phone?: { isValid: boolean; message: string };
+        referral?: { isValid: boolean; message: string; referrerName?: string; referralCode?: string };
+        allValid: boolean;
+    } = {
+        allValid: true,
+    };
+
+    // 1. Validate Email (if provided)
+    if (rawEmail !== undefined) {
+        const email = String(rawEmail).trim().toLowerCase();
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+        if (!email) {
+            response.email = {
+                isValid: false,
+                message: "Email address cannot be empty.",
+            };
+            response.allValid = false;
+        } else if (!emailRegex.test(email)) {
+            response.email = {
+                isValid: false,
+                message: "Invalid email address format.",
+            };
+            response.allValid = false;
+        } else {
+            const existingUser = await UserModel.findOne({
+                email,
+                isDeleted: false,
+            }).select("_id");
+
+            if (existingUser) {
+                response.email = {
+                    isValid: false,
+                    message: "Email is already registered. Please sign in or use another email.",
+                };
+                response.allValid = false;
+            } else {
+                response.email = {
+                    isValid: true,
+                    message: "Email is available.",
+                };
+            }
+        }
+    }
+
+    // 2. Validate Phone Number (if provided)
+    if (rawPhone !== undefined) {
+        const phone = String(rawPhone).trim();
+        const cleanPhone = phone.replace(/[\s-]/g, "");
+
+        if (!phone) {
+            response.phone = {
+                isValid: false,
+                message: "Phone number cannot be empty.",
+            };
+            response.allValid = false;
+        } else if (cleanPhone.length < 6) {
+            response.phone = {
+                isValid: false,
+                message: "Phone number is too short.",
+            };
+            response.allValid = false;
+        } else {
+            const existingUser = await UserModel.findOne({
+                phone: { $in: [phone, cleanPhone] },
+                isDeleted: false,
+            }).select("_id");
+
+            if (existingUser) {
+                response.phone = {
+                    isValid: false,
+                    message: "Phone number is already registered. Please use another number.",
+                };
+                response.allValid = false;
+            } else {
+                response.phone = {
+                    isValid: true,
+                    message: "Phone number is available.",
+                };
+            }
+        }
+    }
+
+    // 3. Validate Referral Code (if provided)
+    if (rawReferral !== undefined) {
+        const code = String(rawReferral).trim().toUpperCase();
+
+        if (!code) {
+            response.referral = {
+                isValid: false,
+                message: "Referral code cannot be empty.",
+            };
+            response.allValid = false;
+        } else {
+            const referrer = await UserModel.findOne({
+                referralCode: code,
+                isDeleted: false,
+            }).select("name referralCode");
+
+            if (referrer) {
+                response.referral = {
+                    isValid: true,
+                    message: "Referral code is valid.",
+                    referrerName: referrer.name,
+                    referralCode: referrer.referralCode,
+                };
+            } else {
+                response.referral = {
+                    isValid: false,
+                    message: "Referral code is invalid or does not exist.",
+                };
+                response.allValid = false;
+            }
+        }
+    }
+
+    return response;
+};
+
 export const authServices = {
     registerUser,
     loginUser,
@@ -622,6 +766,7 @@ export const authServices = {
     verifyNewEmail,
     deleteUser,
     validateReferralCode,
+    checkFieldValidity,
     addFcmToken,
     removeFcmToken,
     updateLiveLocation,

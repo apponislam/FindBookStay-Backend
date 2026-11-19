@@ -132,6 +132,23 @@ const userSchemaDefinition: any = {
         default: true,
     },
 
+    disabledReason: {
+        type: String,
+        default: null,
+        trim: true,
+    },
+
+    disabledAt: {
+        type: Date,
+        default: null,
+    },
+
+    disabledBy: {
+        type: Schema.Types.ObjectId,
+        ref: "User",
+        default: null,
+    },
+
     isEmailVerified: {
         type: Boolean,
         default: false,
@@ -189,6 +206,7 @@ UserSchema.index({ name: 1, isDeleted: 1 });
 UserSchema.index({ role: 1, isDeleted: 1 });
 UserSchema.index({ isActive: 1, isDeleted: 1 });
 UserSchema.index({ isEmailVerified: 1, isDeleted: 1 });
+UserSchema.index({ phone: 1 }, { sparse: true });
 UserSchema.index({ "presentAddress.location": "2dsphere" });
 UserSchema.index({ "permanentAddress.location": "2dsphere" });
 UserSchema.index({ liveLocation: "2dsphere" }, { sparse: true });

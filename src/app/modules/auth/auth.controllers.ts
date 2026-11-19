@@ -435,6 +435,23 @@ const getLiveLocation = catchAsync(async (req: Request, res: Response) => {
     });
 });
 
+const checkFieldValidity = catchAsync(async (req: Request, res: Response) => {
+    // Accepts inputs from either request body (POST) or query string (GET)
+    const payload = {
+        ...req.query,
+        ...req.body,
+    };
+
+    const result = await authServices.checkFieldValidity(payload);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Field validation check completed.",
+        data: result,
+    });
+});
+
 export const authControllers = {
     register,
     login,
@@ -454,6 +471,7 @@ export const authControllers = {
     verifyNewEmail,
     deleteAccount,
     validateReferralCode,
+    checkFieldValidity,
     addFcmToken,
     removeFcmToken,
     updateLiveLocation,

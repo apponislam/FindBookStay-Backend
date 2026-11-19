@@ -17,6 +17,12 @@ router.post("/resend-otp", authControllers.resendOtp);
 router.post("/reset-password", authControllers.resetPassword);
 router.get("/referral/:code", authControllers.validateReferralCode);
 
+// Real-time pre-registration validity/availability check (email, phone, referral)
+router.post("/check-validity", authControllers.checkFieldValidity);
+router.get("/check-validity", authControllers.checkFieldValidity);
+router.post("/check-availability", authControllers.checkFieldValidity);
+router.get("/check-availability", authControllers.checkFieldValidity);
+
 // Protected routes (require auth)
 router.get("/me", auth, authControllers.getMe);
 router.post("/logout", auth, authControllers.logout);

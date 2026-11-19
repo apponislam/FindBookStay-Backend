@@ -43,6 +43,9 @@ export interface User {
     hasTurf: boolean;
     hasProperty: boolean;
     isActive: boolean;
+    disabledReason?: string | null;
+    disabledAt?: Date | null;
+    disabledBy?: Types.ObjectId | null;
     isEmailVerified: boolean;
     isDeleted: boolean;
     lastLogin?: Date;

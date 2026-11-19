@@ -16,6 +16,7 @@ import { siteSettingsRoutes } from "../modules/siteSettings/siteSettings.routes"
 import { notificationRoutes } from "../modules/notification/notification.routes";
 import { listingViewRoutes } from "../modules/listingView/listingView.routes";
 import { lastViewedRoutes } from "../modules/lastViewed/lastViewed.routes";
+import { faqRoutes } from "../modules/faq/faq.routes";
 import { swaggerRouter } from "../docs/swagger";
 
 const router = express.Router();
@@ -88,6 +89,10 @@ const moduleRoutes = [
     {
         path: "/notifications",
         route: notificationRoutes,
+    },
+    {
+        path: "/faqs",
+        route: faqRoutes,
     },
     {
         path: "/docs",

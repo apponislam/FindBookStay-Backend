@@ -24,6 +24,10 @@ const FavoriteSchema = new Schema<IFavorite>(
             trim: true,
             maxlength: [300, "Note cannot exceed 300 characters."],
         },
+        isDeleted: {
+            type: Boolean,
+            default: false,
+        },
     },
     {
         timestamps: true,
@@ -33,8 +37,8 @@ const FavoriteSchema = new Schema<IFavorite>(
 
 // Indexes
 FavoriteSchema.index({ user: 1, listing: 1 }, { unique: true });
-FavoriteSchema.index({ user: 1, createdAt: -1 });
-FavoriteSchema.index({ user: 1, category: 1, createdAt: -1 });
-FavoriteSchema.index({ listing: 1 });
+FavoriteSchema.index({ user: 1, isDeleted: 1, createdAt: -1 });
+FavoriteSchema.index({ user: 1, category: 1, isDeleted: 1, createdAt: -1 });
+FavoriteSchema.index({ listing: 1, isDeleted: 1 });
 
 export const FavoriteModel = mongoose.model<IFavorite>("Favorite", FavoriteSchema);

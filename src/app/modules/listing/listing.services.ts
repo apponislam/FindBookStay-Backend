@@ -4,6 +4,7 @@ import crypto from "crypto";
 import ApiError from "../../../errors/ApiError";
 import { IListing, ListingCategory, ListingStatus, AvailabilityStatus } from "./listing.interface";
 import { ListingModel } from "./listing.model";
+import { FavoriteModel } from "../favorite/favorite.model";
 import { listingViewServices } from "../listingView/listingView.services";
 import { lastViewedServices } from "../lastViewed/lastViewed.services";
 import { UserModel } from "../auth/auth.model";
@@ -70,6 +71,8 @@ const createListing = async (userId: string, userRole: string, payload: Partial<
         approvedAt,
         publishedAt,
         viewsCount: 0,
+        favoritesCount: 0,
+        bookmarksCount: 0,
         ratingAverage: 0,
         totalReviews: 0,
         isDeleted: false,
@@ -233,11 +236,22 @@ const getAllListings = async (filters: Record<string, any>, reqUser?: { _id?: st
         }
     }
 
-    // 7. Keyword Search across multiple fields
+    // 7. Keyword Search across multiple fields & propertyNumber
+    if (filters.propertyNumber) {
+        query.propertyNumber = String(filters.propertyNumber).trim();
+    }
     const rawSearch = filters.searchTerm || filters.search || filters.q;
     if (rawSearch && typeof rawSearch === "string" && rawSearch.trim().length > 0) {
         const term = rawSearch.trim();
-        query.$or = [{ title: { $regex: term, $options: "i" } }, { description: { $regex: term, $options: "i" } }, { "location.address": { $regex: term, $options: "i" } }, { "location.area": { $regex: term, $options: "i" } }, { "location.city": { $regex: term, $options: "i" } }, { "propertyDetails.developerName": { $regex: term, $options: "i" } }];
+        query.$or = [
+            { title: { $regex: term, $options: "i" } },
+            { propertyNumber: { $regex: term, $options: "i" } },
+            { description: { $regex: term, $options: "i" } },
+            { "location.address": { $regex: term, $options: "i" } },
+            { "location.area": { $regex: term, $options: "i" } },
+            { "location.city": { $regex: term, $options: "i" } },
+            { "propertyDetails.developerName": { $regex: term, $options: "i" } },
+        ];
     }
 
     // 8. Badges, Verification & Quality Flags
@@ -501,6 +515,8 @@ const getAllListings = async (filters: Record<string, any>, reqUser?: { _id?: st
         sort = { createdAt: 1 };
     } else if (sortBy === "featured") {
         sort = { isFeatured: -1, createdAt: -1 };
+    } else if (sortBy === "favorites" || sortBy === "bookmarks") {
+        sort = { favoritesCount: -1, createdAt: -1 };
     }
 
     // 13. Optional Field Selection / Projection
@@ -518,6 +534,28 @@ const getAllListings = async (filters: Record<string, any>, reqUser?: { _id?: st
     // Concurrent query and count for low latency
     const [listings, total] = await Promise.all([findQuery, ListingModel.countDocuments(query)]);
 
+    // If caller is authenticated, batch-lookup favorites to attach isFavorite: true/false
+    let enrichedListings: any[] = listings;
+    if (reqUser?._id && listings.length > 0) {
+        const listingIds = listings.map((l: any) => l._id);
+        const favoriteListingIds = await FavoriteModel.find({
+            user: new Types.ObjectId(reqUser._id),
+            listing: { $in: listingIds },
+            isDeleted: false,
+        }).distinct("listing");
+
+        const favoriteSet = new Set(favoriteListingIds.map((id: any) => id.toString()));
+        enrichedListings = listings.map((l: any) => ({
+            ...l,
+            isFavorite: favoriteSet.has(l._id.toString()),
+        }));
+    } else {
+        enrichedListings = listings.map((l: any) => ({
+            ...l,
+            isFavorite: false,
+        }));
+    }
+
     const totalPages = Math.ceil(total / limit) || 1;
 
     return {
@@ -529,7 +567,7 @@ const getAllListings = async (filters: Record<string, any>, reqUser?: { _id?: st
             hasNext: page < totalPages,
             hasPrev: page > 1,
         },
-        data: listings,
+        data: enrichedListings,
     };
 };
 
@@ -538,7 +576,22 @@ const getAllListings = async (filters: Record<string, any>, reqUser?: { _id?: st
  */
 const getListingByIdOrSlug = async (idOrSlug: string, reqUser?: { _id?: string; role?: string }, meta?: { ip?: string; userAgent?: string; visitorId?: string }) => {
     const isId = Types.ObjectId.isValid(idOrSlug);
-    const filter: any = isId ? { $or: [{ _id: idOrSlug }, { slug: idOrSlug.toLowerCase() }], isDeleted: false } : { slug: idOrSlug.toLowerCase(), isDeleted: false };
+    const filter: any = isId
+        ? {
+              $or: [
+                  { _id: idOrSlug },
+                  { slug: idOrSlug.toLowerCase() },
+                  { propertyNumber: idOrSlug },
+              ],
+              isDeleted: false,
+          }
+        : {
+              $or: [
+                  { slug: idOrSlug.toLowerCase() },
+                  { propertyNumber: idOrSlug },
+              ],
+              isDeleted: false,
+          };
 
     const listing = await ListingModel.findOne(filter).populate("createdBy", "name email phone profileImage").populate("owner", "name email phone profileImage");
 
@@ -556,6 +609,17 @@ const getListingByIdOrSlug = async (idOrSlug: string, reqUser?: { _id?: string; 
         }
     }
 
+    // Check if caller has favorited this listing
+    let isFavorite = false;
+    if (reqUser?._id) {
+        const fav = await FavoriteModel.exists({
+            user: new Types.ObjectId(reqUser._id),
+            listing: listing._id,
+            isDeleted: false,
+        });
+        isFavorite = Boolean(fav);
+    }
+
     // Fire-and-forget unique view tracking in background (zero latency, deduplicated per 24h, excludes owner/admin)
     setImmediate(() => {
         listingViewServices.recordListingView(listing._id as Types.ObjectId, listing.createdBy, listing.owner, reqUser, meta);
@@ -566,7 +630,10 @@ const getListingByIdOrSlug = async (idOrSlug: string, reqUser?: { _id?: string; 
         }
     });
 
-    return listing;
+    const listingObj: any = listing.toObject ? listing.toObject() : { ...listing };
+    listingObj.isFavorite = isFavorite;
+
+    return listingObj;
 };
 
 /**

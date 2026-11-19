@@ -6,9 +6,9 @@ import { favoriteServices } from "./favorite.services";
 
 const toggleFavorite = catchAsync(async (req: Request, res: Response) => {
     const userId = (req.user as any)?._id?.toString();
-    const { listing, note } = req.body;
+    const { listing } = req.body;
 
-    const result = await favoriteServices.toggleFavorite(userId, listing, note);
+    const result = await favoriteServices.toggleFavorite(userId, listing);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -31,34 +31,6 @@ const getMyFavorites = catchAsync(async (req: Request, res: Response) => {
     });
 });
 
-const checkIsFavorite = catchAsync(async (req: Request, res: Response) => {
-    const userId = (req.user as any)?._id?.toString();
-    const listingId = req.params.listingId as string;
-
-    const result = await favoriteServices.checkIsFavorite(userId, listingId);
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: result.isFavorite ? "Listing is in favorites." : "Listing is not in favorites.",
-        data: result,
-    });
-});
-
-const removeFavorite = catchAsync(async (req: Request, res: Response) => {
-    const userId = (req.user as any)?._id?.toString();
-    const listingId = req.params.listingId as string;
-
-    const result = await favoriteServices.removeFavorite(userId, listingId);
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: result.message,
-        data: result,
-    });
-});
-
 const updateFavoriteNote = catchAsync(async (req: Request, res: Response) => {
     const userId = (req.user as any)?._id?.toString();
     const listingId = req.params.listingId as string;
@@ -74,25 +46,8 @@ const updateFavoriteNote = catchAsync(async (req: Request, res: Response) => {
     });
 });
 
-const getListingBookmarkCount = catchAsync(async (req: Request, res: Response) => {
-    const listingId = req.params.listingId as string;
-
-    const result = await favoriteServices.getListingBookmarkCount(listingId);
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Bookmark count retrieved successfully.",
-        data: result,
-    });
-});
-
 export const favoriteControllers = {
     toggleFavorite,
     getMyFavorites,
-    checkIsFavorite,
-    removeFavorite,
     updateFavoriteNote,
-    getListingBookmarkCount,
 };
-

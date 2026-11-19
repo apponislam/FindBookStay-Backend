@@ -296,6 +296,7 @@ export interface IListing {
 
     title: string;
     slug: string;
+    propertyNumber: string;
     description: string;
 
     highlights?: IListingHighlight[];
@@ -350,8 +351,11 @@ export interface IListing {
 
     isVerified: boolean;
     isFeatured: boolean;
+    isFavorite?: boolean;
 
     viewsCount: number;
+    favoritesCount: number;
+    bookmarksCount?: number;
     ratingAverage: number;
     totalReviews: number;
 

@@ -295,6 +295,10 @@ const ListingSchema = new Schema<IListing>(
             trim: true,
             lowercase: true,
         },
+        propertyNumber: {
+            type: String,
+            trim: true,
+        },
         description: {
             type: String,
             required: [true, "Listing description is required."],
@@ -413,6 +417,16 @@ const ListingSchema = new Schema<IListing>(
             default: 0,
             min: 0,
         },
+        favoritesCount: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        bookmarksCount: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
         ratingAverage: {
             type: Number,
             default: 0,
@@ -452,8 +466,26 @@ const ListingSchema = new Schema<IListing>(
     }
 );
 
-// Slug generator & featured image helper
+// Property number, slug generator & featured image helper
 ListingSchema.pre("validate", async function () {
+    // Generate unique random property number if not provided
+    if (!this.propertyNumber) {
+        let isUnique = false;
+        let generatedNumber = "";
+
+        while (!isUnique) {
+            // Generate a 7-digit random number (1000000 - 9999999)
+            generatedNumber = crypto.randomInt(1000000, 10000000).toString();
+
+            const existing = await mongoose.models.Listing?.findOne({ propertyNumber: generatedNumber });
+            if (!existing) {
+                isUnique = true;
+            }
+        }
+
+        this.propertyNumber = generatedNumber;
+    }
+
     if (this.title && (!this.slug || this.isModified("title"))) {
         const baseSlug = this.title
             .toLowerCase()
@@ -475,6 +507,7 @@ ListingSchema.pre("validate", async function () {
 // Indexes for High Performance Queries
 ListingSchema.index({ "location.geo": "2dsphere" });
 ListingSchema.index({ slug: 1 }, { unique: true });
+ListingSchema.index({ propertyNumber: 1 }, { unique: true, sparse: true });
 
 // Core marketplace query indexes (Equality, Sort, Range)
 ListingSchema.index({ category: 1, status: 1, isDeleted: 1, isFeatured: -1, createdAt: -1 });

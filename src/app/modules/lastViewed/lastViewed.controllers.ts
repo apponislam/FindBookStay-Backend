@@ -9,11 +9,7 @@ const recordLastViewed = catchAsync(async (req: Request, res: Response) => {
     const listingId = req.params.listingId || req.body.listingId;
     const { category } = req.body || {};
 
-    const result = await lastViewedServices.recordLastViewed(
-        userId,
-        listingId,
-        category
-    );
+    const result = await lastViewedServices.recordLastViewed(userId, listingId, category);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,

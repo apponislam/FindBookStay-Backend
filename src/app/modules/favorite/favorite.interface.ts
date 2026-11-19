@@ -7,6 +7,7 @@ export interface IFavorite {
     listing: Types.ObjectId | IListing;
     category: ListingCategory;
     note?: string;
+    isDeleted: boolean;
     createdAt?: Date;
     updatedAt?: Date;
 }

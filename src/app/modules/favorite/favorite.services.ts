@@ -3,12 +3,12 @@ import httpStatus from "http-status";
 import ApiError from "../../../errors/ApiError";
 import { FavoriteModel } from "./favorite.model";
 import { ListingModel } from "../listing/listing.model";
-import { ListingCategory } from "../listing/listing.interface";
 
 /**
- * Toggle favorite listing (Add if not in favorites, remove if already present)
+ * 1-Click Toggle favorite listing (Add / Soft-delete)
+ * Atomically updates favoritesCount & bookmarksCount on the listing
  */
-const toggleFavorite = async (userId: string, listingId: string, note?: string) => {
+const toggleFavorite = async (userId: string, listingId: string) => {
     if (!Types.ObjectId.isValid(listingId)) {
         throw new ApiError(httpStatus.BAD_REQUEST, "Invalid listing ID format.");
     }
@@ -27,25 +27,46 @@ const toggleFavorite = async (userId: string, listingId: string, note?: string) 
         listing: targetListingId,
     });
 
-    if (existing) {
-        await FavoriteModel.findByIdAndDelete(existing._id);
+    if (existing && !existing.isDeleted) {
+        // Soft delete favorite
+        existing.isDeleted = true;
+        await existing.save();
+
+        // Atomically decrement favorites/bookmarks count on listing
+        await ListingModel.updateOne({ _id: targetListingId, favoritesCount: { $gt: 0 } }, { $inc: { favoritesCount: -1, bookmarksCount: -1 } });
+
         return {
             isFavorite: false,
             message: "Listing removed from favorites.",
             data: null,
         };
+    } else if (existing && existing.isDeleted) {
+        // Restore previously soft-deleted favorite
+        existing.isDeleted = false;
+        existing.category = listing.category;
+        await existing.save();
+
+        // Atomically increment favorites/bookmarks count on listing
+        await ListingModel.updateOne({ _id: targetListingId }, { $inc: { favoritesCount: 1, bookmarksCount: 1 } });
+
+        return {
+            isFavorite: true,
+            message: "Listing saved to favorites successfully.",
+            data: existing,
+        };
     } else {
+        // Create new favorite record
         const favorite = await FavoriteModel.create({
             user: targetUserId,
             listing: targetListingId,
             category: listing.category,
-            note,
+            isDeleted: false,
         });
 
-        await favorite.populate(
-            "listing",
-            "title slug featuredImage category subCategory price priceUnit currency location ratingAverage totalReviews availabilityStatus isVerified"
-        );
+        // Atomically increment favorites/bookmarks count on listing
+        await ListingModel.updateOne({ _id: targetListingId }, { $inc: { favoritesCount: 1, bookmarksCount: 1 } });
+
+        await favorite.populate("listing", "title slug propertyNumber featuredImage category subCategory price priceUnit currency location ratingAverage totalReviews availabilityStatus isVerified favoritesCount bookmarksCount");
 
         return {
             isFavorite: true,
@@ -56,11 +77,11 @@ const toggleFavorite = async (userId: string, listingId: string, note?: string) 
 };
 
 /**
- * Get all favorite listings saved by current user (supports filtering by category)
+ * Get all active favorite listings saved by current user
  */
 const getMyFavorites = async (userId: string, query: Record<string, any>) => {
     const targetUserId = new Types.ObjectId(userId);
-    const filter: any = { user: targetUserId };
+    const filter: any = { user: targetUserId, isDeleted: false };
 
     if (query.category) {
         filter.category = query.category;
@@ -78,15 +99,11 @@ const getMyFavorites = async (userId: string, query: Record<string, any>) => {
             .populate({
                 path: "listing",
                 match: { isDeleted: false },
-                select:
-                    "title slug featuredImage category subCategory price originalPrice priceUnit currency location ratingAverage totalReviews availabilityStatus isVerified",
+                select: "title slug propertyNumber featuredImage category subCategory price originalPrice priceUnit currency location ratingAverage totalReviews availabilityStatus isVerified favoritesCount bookmarksCount",
             })
             .lean(),
         FavoriteModel.countDocuments(filter),
-        FavoriteModel.aggregate([
-            { $match: { user: targetUserId } },
-            { $group: { _id: "$category", count: { $sum: 1 } } },
-        ]),
+        FavoriteModel.aggregate([{ $match: { user: targetUserId, isDeleted: false } }, { $group: { _id: "$category", count: { $sum: 1 } } }]),
     ]);
 
     // Filter out items where the listing was deleted
@@ -122,44 +139,6 @@ const getMyFavorites = async (userId: string, query: Record<string, any>) => {
 };
 
 /**
- * Check if a listing is currently favorited by the user
- */
-const checkIsFavorite = async (userId: string, listingId: string) => {
-    if (!Types.ObjectId.isValid(listingId)) {
-        return { isFavorite: false };
-    }
-
-    const count = await FavoriteModel.countDocuments({
-        user: new Types.ObjectId(userId),
-        listing: new Types.ObjectId(listingId),
-    });
-
-    return {
-        isFavorite: count > 0,
-    };
-};
-
-/**
- * Remove a listing from favorites explicitly
- */
-const removeFavorite = async (userId: string, listingId: string) => {
-    if (!Types.ObjectId.isValid(listingId)) {
-        throw new ApiError(httpStatus.BAD_REQUEST, "Invalid listing ID format.");
-    }
-
-    const result = await FavoriteModel.findOneAndDelete({
-        user: new Types.ObjectId(userId),
-        listing: new Types.ObjectId(listingId),
-    });
-
-    if (!result) {
-        throw new ApiError(httpStatus.NOT_FOUND, "This listing was not found in your favorites.");
-    }
-
-    return { message: "Listing removed from favorites successfully." };
-};
-
-/**
  * Update private note on a saved listing
  */
 const updateFavoriteNote = async (userId: string, listingId: string, note: string) => {
@@ -170,10 +149,11 @@ const updateFavoriteNote = async (userId: string, listingId: string, note: strin
     const favorite = await FavoriteModel.findOne({
         user: new Types.ObjectId(userId),
         listing: new Types.ObjectId(listingId),
+        isDeleted: false,
     });
 
     if (!favorite) {
-        throw new ApiError(httpStatus.NOT_FOUND, "This listing was not found in your favorites.");
+        throw new ApiError(httpStatus.NOT_FOUND, "This listing was not found in your active favorites.");
     }
 
     favorite.note = note;
@@ -182,29 +162,8 @@ const updateFavoriteNote = async (userId: string, listingId: string, note: strin
     return favorite;
 };
 
-/**
- * Get total bookmarks count for a listing
- */
-const getListingBookmarkCount = async (listingId: string) => {
-    if (!Types.ObjectId.isValid(listingId)) {
-        throw new ApiError(httpStatus.BAD_REQUEST, "Invalid listing ID format.");
-    }
-
-    const count = await FavoriteModel.countDocuments({
-        listing: new Types.ObjectId(listingId),
-    });
-
-    return {
-        listingId,
-        bookmarkCount: count,
-    };
-};
-
 export const favoriteServices = {
     toggleFavorite,
     getMyFavorites,
-    checkIsFavorite,
-    removeFavorite,
     updateFavoriteNote,
-    getListingBookmarkCount,
 };

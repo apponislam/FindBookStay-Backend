@@ -159,6 +159,7 @@ const createListingZodSchema = z.object({
         .string({ message: "Listing title is required." })
         .min(3, "Title must be at least 3 characters.")
         .max(200, "Title cannot exceed 200 characters."),
+    propertyNumber: z.string().optional(),
     description: z
         .string({ message: "Listing description is required." })
         .min(10, "Description must be at least 10 characters."),

@@ -73,7 +73,7 @@ const getMyLastViewed = async (
     const doc = await LastViewedModel.findOne({ user: userObjId })
         .populate({
             path: "items.listing",
-            select: "title slug price priceUnit currency featuredImage images location ratingAverage totalReviews status availabilityStatus isFeatured isVerified isDeleted",
+            select: "title slug propertyNumber price priceUnit currency featuredImage images location ratingAverage totalReviews status availabilityStatus isFeatured isVerified isDeleted",
         })
         .lean();
 

@@ -6,6 +6,7 @@ import { ConversationModel } from "../conversation/conversation.model";
 import { conversationServices } from "../conversation/conversation.services";
 import { emitToUser } from "../../../utils/socket";
 import { emitToConversation } from "./message.socket";
+import { notificationServices } from "../notification/notification.services";
 
 const sendMessage = async (
     senderId: string,
@@ -116,6 +117,24 @@ const sendMessage = async (
         conversationId: convIdStr,
         message: populatedMessage,
     });
+
+    // Background push notification (anti-storm debounced in Redis, delivers to mobile lock screen)
+    const senderName = (populatedMessage as any)?.sender?.name || "FindBookStay User";
+    notificationServices
+        .createNotification({
+            recipient: resolvedRecipientId!,
+            sender: senderId,
+            type: "MESSAGE_RECEIVED",
+            title: senderName,
+            message: previewText,
+            link: `/chat/${convIdStr}`,
+            data: {
+                conversationId: convIdStr,
+                messageId: message._id.toString(),
+                referenceId: convIdStr,
+            },
+        })
+        .catch((err) => console.error("[Message Push Notification Error]:", err));
 
     return populatedMessage;
 };

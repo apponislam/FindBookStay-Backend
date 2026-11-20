@@ -10,6 +10,7 @@ import { lastViewedServices } from "../lastViewed/lastViewed.services";
 import { UserModel } from "../auth/auth.model";
 import { activityLogServices } from "../activityLog/activityLog.services";
 import { listingRedis } from "./listing.redis";
+import { notificationServices } from "../notification/notification.services";
 
 /**
  * Update user category flags (hasHome, hasStay, hasTurf, hasProperty)
@@ -868,6 +869,27 @@ const approveOrRejectListing = async (id: string, adminId: string, payload: { st
 
     // Evict stale search & aggregate stats cache
     listingRedis.invalidateListing(listing._id.toString(), listing.slug, listing.propertyNumber, listing.category);
+
+    // In-app & Push notification to listing owner
+    if (listing.createdBy) {
+        const isApproved = payload.status === "ACTIVE";
+        notificationServices
+            .createNotification({
+                recipient: listing.createdBy.toString(),
+                sender: adminId,
+                type: isApproved ? "LISTING_APPROVED" : "LISTING_REJECTED",
+                title: isApproved ? "Listing Approved! 🎉" : "Listing Update Required",
+                message: isApproved
+                    ? `Your listing "${listing.title}" is now verified and live on FindBookStay.`
+                    : `Your listing "${listing.title}" requires updates: ${listing.rejectionReason}`,
+                link: isApproved ? `/listings/${listing.slug || listing._id}` : `/dashboard/listings`,
+                data: {
+                    listingId: listing._id.toString(),
+                    category: listing.category,
+                },
+            })
+            .catch((notifErr) => console.error("[Listing Status Notification Error]:", notifErr));
+    }
 
     return listing;
 };

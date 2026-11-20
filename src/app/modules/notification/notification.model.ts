@@ -7,7 +7,6 @@ const NotificationSchema = new Schema<INotification>(
             type: Schema.Types.ObjectId,
             ref: "User",
             required: [true, "Recipient user ID is required."],
-            index: true,
         },
         sender: {
             type: Schema.Types.ObjectId,
@@ -74,9 +73,9 @@ const NotificationSchema = new Schema<INotification>(
     },
 );
 
-// High-performance query indexes for fast inbox retrieval & unread counts
-NotificationSchema.index({ recipient: 1, createdAt: -1 });
-NotificationSchema.index({ recipient: 1, isRead: 1, createdAt: -1 });
+// High-performance compound query indexes for fast inbox retrieval & unread counts
+NotificationSchema.index({ recipient: 1, isDeleted: 1, createdAt: -1 });
+NotificationSchema.index({ recipient: 1, isRead: 1, isDeleted: 1 });
 
 export const NotificationModel = mongoose.model<INotification>("Notification", NotificationSchema);
 

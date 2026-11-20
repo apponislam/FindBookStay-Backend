@@ -8,7 +8,22 @@ const sendNotificationZodSchema = z
             .optional(),
         broadcast: z.boolean().optional().default(false),
         targetRole: z.enum(["ALL", "USER", "ADMIN"]).optional().default("ALL"),
-        type: z.enum(["BOOKING_CREATED", "BOOKING_CONFIRMED", "BOOKING_CANCELLED", "MESSAGE_RECEIVED", "PAYMENT_SUCCESS", "REVIEW_RECEIVED", "LISTING_APPROVED", "LISTING_REJECTED", "SYSTEM_ALERT", "PROMOTION", "GENERAL"]).optional().default("GENERAL"),
+        type: z
+            .enum([
+                "BOOKING_CREATED",
+                "BOOKING_CONFIRMED",
+                "BOOKING_CANCELLED",
+                "MESSAGE_RECEIVED",
+                "PAYMENT_SUCCESS",
+                "REVIEW_RECEIVED",
+                "LISTING_APPROVED",
+                "LISTING_REJECTED",
+                "SYSTEM_ALERT",
+                "PROMOTION",
+                "GENERAL",
+            ])
+            .optional()
+            .default("GENERAL"),
         title: z.string().min(1, "Notification title is required.").max(200, "Title cannot exceed 200 characters."),
         message: z.string().min(1, "Notification message is required.").max(2000, "Message cannot exceed 2000 characters."),
         image: z.string().optional(),
@@ -20,6 +35,14 @@ const sendNotificationZodSchema = z
         path: ["recipientId"],
     });
 
+const fcmTokenZodSchema = z.object({
+    token: z
+        .string({ message: "FCM device token is required." })
+        .min(20, "FCM token must be at least 20 characters long.")
+        .max(500, "FCM token cannot exceed 500 characters."),
+});
+
 export const notificationValidations = {
     sendNotificationZodSchema,
+    fcmTokenZodSchema,
 };

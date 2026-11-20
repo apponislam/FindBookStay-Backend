@@ -7,7 +7,7 @@ import validateRequest from "../../middlewares/validateRequest";
 
 const router = Router();
 
-// Get fast unread notifications count for badge
+// Fast unread count from Redis for app badge
 router.get("/unread-count", auth, notificationControllers.getUnreadCount);
 
 // Mark all notifications as read for current user
@@ -16,8 +16,30 @@ router.patch("/read-all", auth, notificationControllers.markAllAsRead);
 // Clear all notifications for current user
 router.delete("/clear-all", auth, notificationControllers.clearAllNotifications);
 
+// Register or rotate mobile FCM push token
+router.post(
+    "/fcm-token",
+    auth,
+    validateRequest(notificationValidations.fcmTokenZodSchema),
+    notificationControllers.registerFcmToken
+);
+
+// Unregister mobile FCM push token on logout
+router.delete(
+    "/fcm-token",
+    auth,
+    validateRequest(notificationValidations.fcmTokenZodSchema),
+    notificationControllers.unregisterFcmToken
+);
+
 // Admin only: Send individual or broadcast custom notification
-router.post("/send", auth, authorize(["ADMIN"]), validateRequest(notificationValidations.sendNotificationZodSchema), notificationControllers.sendCustomNotification);
+router.post(
+    "/send",
+    auth,
+    authorize(["ADMIN"]),
+    validateRequest(notificationValidations.sendNotificationZodSchema),
+    notificationControllers.sendCustomNotification
+);
 
 // Get paginated notifications for current user
 router.get("/", auth, notificationControllers.getMyNotifications);

@@ -10,11 +10,20 @@ const router = Router();
 // User analytics & stats (Admin only)
 router.get("/stats", auth, authorize(["ADMIN"]), userControllers.getUserStats);
 
+// Memory-safe streaming JSON export (Admin only)
+router.get("/export", auth, authorize(["ADMIN"]), userControllers.exportUsersStream);
+
 // Get all users with filters, search, and pagination (Admin only)
 router.get("/", auth, authorize(["ADMIN"]), userControllers.getAllUsers);
 
-// Get single user by ID (Admin only)
-router.get("/:id", auth, authorize(["ADMIN"]), userControllers.getUserById);
+// View active device sessions for a user (Admin only)
+router.get("/:id/sessions", auth, authorize(["ADMIN"]), userControllers.getUserSessions);
+
+// Terminate specific device session for a user (Admin only)
+router.delete("/:id/sessions/:deviceId", auth, authorize(["ADMIN"]), userControllers.terminateUserSession);
+
+// Terminate all device sessions and revoke tokens for a user (Admin only)
+router.post("/:id/sessions/terminate-all", auth, authorize(["ADMIN"]), userControllers.terminateAllUserSessions);
 
 // Disable or Enable user account with reason note (Admin only)
 router.patch(
@@ -46,5 +55,7 @@ router.patch(
 // Soft delete or permanently delete user account (Admin only)
 router.delete("/:id", auth, authorize(["ADMIN"]), userControllers.deleteUserByAdmin);
 
-export const userRoutes = router;
+// Get single user by ID (Admin only)
+router.get("/:id", auth, authorize(["ADMIN"]), userControllers.getUserById);
 
+export const userRoutes = router;

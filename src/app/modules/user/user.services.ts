@@ -1,3 +1,4 @@
+import { Response } from "express";
 import { Types } from "mongoose";
 import httpStatus from "http-status";
 import bcrypt from "bcrypt";
@@ -8,6 +9,9 @@ import { User } from "../auth/auth.interface";
 import { ListingModel } from "../listing/listing.model";
 import { activityLogServices } from "../activityLog/activityLog.services";
 import { IUserStats } from "./user.interface";
+import { userRedis } from "./user.redis";
+import { authRedis } from "../auth/auth.redis";
+import { listingRedis } from "../listing/listing.redis";
 
 const toBoolean = (val: any): boolean | undefined => {
     if (val === undefined || val === null || val === "") return undefined;
@@ -117,11 +121,17 @@ const getAllUsers = async (filters: Record<string, any>) => {
 };
 
 /**
- * Get single user by ID with populated details and total listings count
+ * Get single user by ID with populated details and total listings count (Redis Cached)
  */
 const getUserById = async (userId: string) => {
     if (!Types.ObjectId.isValid(userId)) {
         throw new ApiError(httpStatus.BAD_REQUEST, "Invalid user ID format.");
+    }
+
+    // 1. Check Redis cache first
+    const cachedProfile = await userRedis.getCachedUserProfile(userId);
+    if (cachedProfile) {
+        return cachedProfile;
     }
 
     const user = await UserModel.findById(userId)
@@ -140,14 +150,20 @@ const getUserById = async (userId: string) => {
         isDeleted: false,
     });
 
-    return {
+    const result = {
         ...user,
         listingsCount,
     };
+
+    // 2. Set cache in Redis
+    await userRedis.setCachedUserProfile(userId, result);
+
+    return result;
 };
 
 /**
  * Disable or Enable user account with reason note (Admin only)
+ * Engineered with instant token revocation, listing cascade deactivation, and cache invalidation
  */
 const updateUserStatus = async (
     userId: string,
@@ -183,6 +199,36 @@ const updateUserStatus = async (
 
     await user.save();
 
+    // Invalidate user cache and global stats
+    await userRedis.invalidateUser(userId);
+
+    // If disabled: instantly revoke all refresh tokens and cascade deactivation + cache purge to listings
+    if (payload.isActive === false) {
+        await authRedis.revokeAllUserRefreshTokens(userId);
+
+        const userListings = await ListingModel.find({
+            createdBy: user._id,
+            isDeleted: false,
+        }).select("_id slug propertyNumber category").lean();
+
+        if (userListings.length > 0) {
+            await ListingModel.updateMany(
+                { createdBy: user._id, isDeleted: false },
+                { $set: { isAvailable: false } }
+            );
+
+            // Invalidate Redis cache for each listing to eliminate ghost listings
+            for (const item of userListings) {
+                await listingRedis.invalidateListing(
+                    item._id.toString(),
+                    item.slug,
+                    item.propertyNumber,
+                    item.category
+                );
+            }
+        }
+    }
+
     // Audit log
     activityLogServices.createActivityLog({
         user: new Types.ObjectId(adminId),
@@ -214,6 +260,7 @@ const updateUserStatus = async (
 
 /**
  * Force password change for a user by Administrator
+ * Engineered with instant active token revocation and cache eviction
  */
 const changeUserPasswordByAdmin = async (
     userId: string,
@@ -238,6 +285,10 @@ const changeUserPasswordByAdmin = async (
     user.password = hashedPassword;
     await user.save();
 
+    // Revoke all existing sessions and refresh tokens across all devices
+    await authRedis.revokeAllUserRefreshTokens(userId);
+    await userRedis.invalidateUser(userId);
+
     // Audit log
     activityLogServices.createActivityLog({
         user: new Types.ObjectId(adminId),
@@ -255,7 +306,7 @@ const changeUserPasswordByAdmin = async (
     });
 
     return {
-        message: "User password updated successfully by administrator.",
+        message: "User password updated successfully by administrator. All existing sessions were revoked.",
         userId: user._id,
     };
 };
@@ -301,6 +352,9 @@ const updateUserByAdmin = async (
         { new: true, runValidators: true }
     ).select("-password");
 
+    // Invalidate user cache
+    await userRedis.invalidateUser(userId);
+
     // Audit log
     activityLogServices.createActivityLog({
         user: new Types.ObjectId(adminId),
@@ -322,6 +376,7 @@ const updateUserByAdmin = async (
 
 /**
  * Delete or Soft-delete user account by Administrator
+ * Engineered with cascade token revocation and listing cache purges
  */
 const deleteUserByAdmin = async (
     userId: string,
@@ -342,8 +397,22 @@ const deleteUserByAdmin = async (
         throw new ApiError(httpStatus.NOT_FOUND, "User account not found.");
     }
 
+    // Revoke all refresh tokens
+    await authRedis.revokeAllUserRefreshTokens(userId);
+
+    // Invalidate user cache
+    await userRedis.invalidateUser(userId);
+
+    // Find and invalidate user's listings
+    const userListings = await ListingModel.find({ createdBy: user._id })
+        .select("_id slug propertyNumber category")
+        .lean();
+
     if (hardDelete) {
         await UserModel.findByIdAndDelete(userId);
+        if (userListings.length > 0) {
+            await ListingModel.deleteMany({ createdBy: user._id });
+        }
     } else {
         user.isDeleted = true;
         user.isActive = false;
@@ -356,6 +425,16 @@ const deleteUserByAdmin = async (
         await ListingModel.updateMany(
             { createdBy: user._id, isDeleted: false },
             { $set: { isDeleted: true } }
+        );
+    }
+
+    // Purge cached listing documents from Redis
+    for (const item of userListings) {
+        await listingRedis.invalidateListing(
+            item._id.toString(),
+            item.slug,
+            item.propertyNumber,
+            item.category
         );
     }
 
@@ -383,8 +462,15 @@ const deleteUserByAdmin = async (
 
 /**
  * Get comprehensive User Analytics & Statistics for Admin Dashboard
+ * Engineered with Redis Cache-Aside layer (10-minute TTL)
  */
 const getUserStats = async (): Promise<IUserStats> => {
+    // 1. Try Redis cache
+    const cachedStats = await userRedis.getCachedUserStats();
+    if (cachedStats) {
+        return cachedStats;
+    }
+
     const now = new Date();
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -417,7 +503,7 @@ const getUserStats = async (): Promise<IUserStats> => {
         UserModel.countDocuments({ isDeleted: false, createdAt: { $gte: thirtyDaysAgo } }),
     ]);
 
-    return {
+    const stats: IUserStats = {
         totalUsers,
         activeUsers,
         disabledUsers,
@@ -433,6 +519,180 @@ const getUserStats = async (): Promise<IUserStats> => {
         newUsersLast7Days,
         newUsersLast30Days,
     };
+
+    // 2. Set cache in Redis
+    await userRedis.setCachedUserStats(stats);
+
+    return stats;
+};
+
+/**
+ * Active Device Session Management: List active sessions
+ */
+const getUserSessions = async (userId: string) => {
+    if (!Types.ObjectId.isValid(userId)) {
+        throw new ApiError(httpStatus.BAD_REQUEST, "Invalid user ID format.");
+    }
+
+    const user = await UserModel.findById(userId).select("knownDevices name email").lean();
+    if (!user) {
+        throw new ApiError(httpStatus.NOT_FOUND, "User account not found.");
+    }
+
+    return user.knownDevices || [];
+};
+
+/**
+ * Active Device Session Management: Terminate a specific device session
+ */
+const terminateUserSession = async (
+    userId: string,
+    targetDeviceId: string,
+    adminId?: string,
+    meta?: { ip?: string; userAgent?: string }
+) => {
+    if (!Types.ObjectId.isValid(userId)) {
+        throw new ApiError(httpStatus.BAD_REQUEST, "Invalid user ID format.");
+    }
+
+    const user = await UserModel.findById(userId);
+    if (!user) {
+        throw new ApiError(httpStatus.NOT_FOUND, "User account not found.");
+    }
+
+    const initialCount = user.knownDevices?.length || 0;
+    user.knownDevices = (user.knownDevices || []).filter(
+        (device) => device.deviceId !== targetDeviceId
+    );
+
+    if (user.knownDevices.length === initialCount) {
+        throw new ApiError(httpStatus.NOT_FOUND, "Device session not found or already terminated.");
+    }
+
+    await user.save();
+    await userRedis.invalidateUser(userId);
+
+    // Audit log
+    if (adminId) {
+        activityLogServices.createActivityLog({
+            user: new Types.ObjectId(adminId),
+            role: "ADMIN",
+            action: "TERMINATE_SESSION" as any,
+            module: "USER" as any,
+            description: `Terminated device session "${targetDeviceId}" for user: ${user.email}`,
+            status: "SUCCESS",
+            ipAddress: meta?.ip,
+            userAgent: meta?.userAgent,
+            metadata: { targetUserId: user._id, deviceId: targetDeviceId },
+        });
+    }
+
+    return {
+        message: "Device session terminated successfully.",
+        remainingSessions: user.knownDevices.length,
+    };
+};
+
+/**
+ * Active Device Session Management: Terminate all sessions and revoke tokens
+ */
+const terminateAllUserSessions = async (
+    userId: string,
+    adminId?: string,
+    meta?: { ip?: string; userAgent?: string }
+) => {
+    if (!Types.ObjectId.isValid(userId)) {
+        throw new ApiError(httpStatus.BAD_REQUEST, "Invalid user ID format.");
+    }
+
+    const user = await UserModel.findById(userId);
+    if (!user) {
+        throw new ApiError(httpStatus.NOT_FOUND, "User account not found.");
+    }
+
+    user.knownDevices = [];
+    await user.save();
+
+    // Revoke all active Redis refresh tokens for this user
+    await authRedis.revokeAllUserRefreshTokens(userId);
+    await userRedis.invalidateUser(userId);
+
+    // Audit log
+    if (adminId) {
+        activityLogServices.createActivityLog({
+            user: new Types.ObjectId(adminId),
+            role: "ADMIN",
+            action: "TERMINATE_ALL_SESSIONS" as any,
+            module: "USER" as any,
+            description: `Terminated all active device sessions for user: ${user.email}`,
+            status: "SUCCESS",
+            ipAddress: meta?.ip,
+            userAgent: meta?.userAgent,
+            metadata: { targetUserId: user._id },
+        });
+    }
+
+    return {
+        message: "All active device sessions and refresh tokens have been revoked successfully.",
+    };
+};
+
+/**
+ * High-performance, Memory-Safe Streaming Export using MongoDB Cursors
+ * Streams data directly into the HTTP response stream with O(1) server memory
+ */
+const exportUsersStream = async (res: Response, filters: Record<string, any>) => {
+    const query: any = {};
+
+    if (filters.isDeleted === "true" || filters.isDeleted === true) {
+        query.isDeleted = true;
+    } else if (filters.isDeleted === "all") {
+        // No isDeleted filter
+    } else {
+        query.isDeleted = false;
+    }
+
+    const isActive = toBoolean(filters.isActive);
+    if (isActive !== undefined) query.isActive = isActive;
+
+    if (filters.role) query.role = String(filters.role).toUpperCase();
+
+    const isEmailVerified = toBoolean(filters.isEmailVerified);
+    if (isEmailVerified !== undefined) query.isEmailVerified = isEmailVerified;
+
+    const rawSearch = filters.searchTerm || filters.search || filters.q;
+    if (rawSearch && typeof rawSearch === "string" && rawSearch.trim().length > 0) {
+        const term = rawSearch.trim();
+        query.$or = [
+            { name: { $regex: term, $options: "i" } },
+            { email: { $regex: term, $options: "i" } },
+            { phone: { $regex: term, $options: "i" } },
+            { referralCode: { $regex: term, $options: "i" } },
+        ];
+    }
+
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Content-Disposition", `attachment; filename="users_export_${Date.now()}.json"`);
+
+    res.write("[\n");
+    let isFirst = true;
+
+    const cursor = UserModel.find(query)
+        .select("-password")
+        .sort({ createdAt: -1 })
+        .cursor();
+
+    for await (const doc of cursor) {
+        if (!isFirst) {
+            res.write(",\n");
+        } else {
+            isFirst = false;
+        }
+        res.write(JSON.stringify(doc));
+    }
+
+    res.write("\n]");
+    res.end();
 };
 
 export const userServices = {
@@ -443,4 +703,8 @@ export const userServices = {
     updateUserByAdmin,
     deleteUserByAdmin,
     getUserStats,
+    getUserSessions,
+    terminateUserSession,
+    terminateAllUserSessions,
+    exportUsersStream,
 };

@@ -85,6 +85,34 @@ const clearAllNotifications = catchAsync(async (req: Request, res: Response) => 
     });
 });
 
+const registerFcmToken = catchAsync(async (req: Request, res: Response) => {
+    const userId = req.user._id.toString();
+    const { token } = req.body;
+
+    const result = await notificationServices.registerFcmToken(userId, token);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: result.message,
+        data: result,
+    });
+});
+
+const unregisterFcmToken = catchAsync(async (req: Request, res: Response) => {
+    const userId = req.user._id.toString();
+    const { token } = req.body;
+
+    const result = await notificationServices.unregisterFcmToken(userId, token);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: result.message,
+        data: result,
+    });
+});
+
 const sendCustomNotification = catchAsync(async (req: Request, res: Response) => {
     const senderId = req.user._id.toString();
 
@@ -105,6 +133,7 @@ export const notificationControllers = {
     markAllAsRead,
     deleteNotification,
     clearAllNotifications,
+    registerFcmToken,
+    unregisterFcmToken,
     sendCustomNotification,
 };
-

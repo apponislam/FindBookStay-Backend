@@ -63,6 +63,14 @@ export const initSocket = (server: HTTPServer): SocketIOServer => {
     io.on("connection", (socket: Socket) => {
         console.log(`🔌 [Socket.io] Client connected: ${socket.id}`);
 
+        const userId = (socket as any).userId;
+        const role = (socket as any).user?.role;
+        if (userId) {
+            socket.join(`user_${userId}`);
+            if (role) socket.join(`role_${role}`);
+            socket.join("authenticated_users");
+        }
+
         socket.on("join_user_room", (userId: string) => {
             if (userId) {
                 socket.join(`user_${userId}`);

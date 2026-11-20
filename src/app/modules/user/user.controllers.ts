@@ -101,6 +101,57 @@ const deleteUserByAdmin = catchAsync(async (req: Request, res: Response) => {
     });
 });
 
+const getUserSessions = catchAsync(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const currentUserId = (req.user as any)?._id?.toString();
+    const targetUserId = id === "me" ? currentUserId : (id as string);
+
+    const result = await userServices.getUserSessions(targetUserId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "User active sessions retrieved successfully.",
+        data: result,
+    });
+});
+
+const terminateUserSession = catchAsync(async (req: Request, res: Response) => {
+    const { id, deviceId } = req.params;
+    const adminId = (req.user as any)?._id?.toString();
+    const targetUserId = id === "me" ? adminId : (id as string);
+    const meta = { ip: req.ip, userAgent: req.get("user-agent") };
+
+    const result = await userServices.terminateUserSession(targetUserId, deviceId as string, adminId, meta);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: result.message,
+        data: result,
+    });
+});
+
+const terminateAllUserSessions = catchAsync(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const adminId = (req.user as any)?._id?.toString();
+    const targetUserId = id === "me" ? adminId : (id as string);
+    const meta = { ip: req.ip, userAgent: req.get("user-agent") };
+
+    const result = await userServices.terminateAllUserSessions(targetUserId, adminId, meta);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: result.message,
+        data: result,
+    });
+});
+
+const exportUsersStream = catchAsync(async (req: Request, res: Response) => {
+    await userServices.exportUsersStream(res, req.query);
+});
+
 export const userControllers = {
     getAllUsers,
     getUserStats,
@@ -109,5 +160,8 @@ export const userControllers = {
     changeUserPasswordByAdmin,
     updateUserByAdmin,
     deleteUserByAdmin,
+    getUserSessions,
+    terminateUserSession,
+    terminateAllUserSessions,
+    exportUsersStream,
 };
-

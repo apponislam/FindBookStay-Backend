@@ -6,6 +6,7 @@ import config from "../../config";
 import { Request, Response } from "express";
 import { authServices } from "./auth.services";
 import { activityLogServices } from "../activityLog/activityLog.services";
+import { normalizeImagePath } from "./auth.utils";
 
 const parseIfString = (val: any) => {
     if (typeof val === "string") {
@@ -31,6 +32,9 @@ const register = catchAsync(async (req: Request, res: Response) => {
     const liveLocation = parseIfString(data.liveLocation);
     const sameAsPresent = data.sameAsPresent === true || data.sameAsPresent === "true";
 
+    const rawProfileImage = data.profileImage || req.file?.path;
+    const profileImage = normalizeImagePath(rawProfileImage);
+
     // Parse JSON fields
     const userData: any = {
         name: data.name,
@@ -38,7 +42,7 @@ const register = catchAsync(async (req: Request, res: Response) => {
         password: data.password,
         role: data.role,
         phone: data.phone,
-        profileImage: req.file?.path || data.profileImage,
+        profileImage,
         presentAddress,
         permanentAddress,
         sameAsPresent,
@@ -92,7 +96,26 @@ const register = catchAsync(async (req: Request, res: Response) => {
 });
 
 const login = catchAsync(async (req: Request, res: Response) => {
-    const result = await authServices.loginUser(req.body);
+    const clientIp = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip || "Unknown";
+    const userAgent = req.headers["user-agent"] || "Unknown";
+    const deviceId = (req.headers["x-device-id"] as string) || req.body?.deviceId;
+    const turnstileToken =
+        req.body?.turnstileToken ||
+        (req.headers["cf-turnstile-response"] as string) ||
+        (req.headers["x-turnstile-token"] as string);
+
+    const result = await authServices.loginUser(
+        {
+            ...req.body,
+            deviceId,
+            turnstileToken,
+        },
+        {
+            ip: clientIp,
+            userAgent,
+            deviceId,
+        }
+    );
 
     res.cookie("refreshToken", result.refreshToken, {
         httpOnly: true,
@@ -108,8 +131,8 @@ const login = catchAsync(async (req: Request, res: Response) => {
         module: "AUTH",
         description: `User signed in successfully: ${result.user.name} (${result.user.email})`,
         status: "SUCCESS",
-        ipAddress: req.ip || (req.headers["x-forwarded-for"] as string),
-        userAgent: req.headers["user-agent"],
+        ipAddress: clientIp,
+        userAgent,
     });
 
     sendResponse(res, {
@@ -166,13 +189,12 @@ const getMe = catchAsync(async (req: Request, res: Response) => {
 });
 
 const logout = catchAsync(async (req: Request, res: Response) => {
+    const rawRefreshToken = req.cookies.refreshToken || req.body?.refreshToken;
     res.clearCookie("refreshToken");
 
-    if (req.user && req.body?.fcmToken) {
-        await authServices.removeFcmToken(req.user._id, req.body.fcmToken);
-    }
-
     if (req.user) {
+        await authServices.logoutUser(req.user._id, rawRefreshToken, req.body?.fcmToken);
+
         activityLogServices.createActivityLog({
             user: req.user._id,
             role: req.user.role,
@@ -197,11 +219,22 @@ const refreshAccessToken = catchAsync(async (req: Request, res: Response) => {
     const refreshToken = req.cookies.refreshToken || req.body.refreshToken;
     const result = await authServices.refreshAccessToken(refreshToken);
 
+    // Set rotated refresh token cookie
+    res.cookie("refreshToken", result.refreshToken, {
+        httpOnly: true,
+        secure: config.node_env === "production",
+        sameSite: "strict",
+        maxAge: 30 * 24 * 60 * 60 * 1000,
+    });
+
     sendResponse(res, {
         statusCode: httpStatus.OK,
         success: true,
-        message: "Token refreshed successfully",
-        data: result,
+        message: "Token refreshed successfully with rotated session.",
+        data: {
+            user: result.user,
+            accessToken: result.accessToken,
+        },
     });
 });
 
@@ -257,11 +290,14 @@ const updateProfile = catchAsync(async (req: Request, res: Response) => {
     const liveLocation = parseIfString(data.liveLocation);
     const sameAsPresent = data.sameAsPresent === true || data.sameAsPresent === "true";
 
+    const rawProfileImage = data.profileImage || req.file?.path;
+    const profileImage = normalizeImagePath(rawProfileImage);
+
     // Construct update data based on the provided fields
     const updateData: any = {
         ...(data.name !== undefined && { name: data.name }),
         ...(data.phone !== undefined && { phone: data.phone }),
-        ...((req.file?.path || data.profileImage !== undefined) && { profileImage: req.file?.path || data.profileImage }),
+        ...(profileImage !== undefined && { profileImage }),
         ...(data.language !== undefined && { language: data.language }),
         ...(presentAddress !== undefined && { presentAddress }),
         ...(permanentAddress !== undefined && { permanentAddress }),

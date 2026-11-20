@@ -3,6 +3,7 @@ import httpStatus from "http-status";
 import ApiError from "../../../errors/ApiError";
 import { FavoriteModel } from "./favorite.model";
 import { ListingModel } from "../listing/listing.model";
+import { listingRedis } from "../listing/listing.redis";
 
 /**
  * 1-Click Toggle favorite listing (Add / Soft-delete)
@@ -34,6 +35,7 @@ const toggleFavorite = async (userId: string, listingId: string) => {
 
         // Atomically decrement favorites/bookmarks count on listing
         await ListingModel.updateOne({ _id: targetListingId, favoritesCount: { $gt: 0 } }, { $inc: { favoritesCount: -1, bookmarksCount: -1 } });
+        listingRedis.invalidateListing(listingId, listing.slug, listing.propertyNumber, listing.category);
 
         return {
             isFavorite: false,
@@ -48,6 +50,7 @@ const toggleFavorite = async (userId: string, listingId: string) => {
 
         // Atomically increment favorites/bookmarks count on listing
         await ListingModel.updateOne({ _id: targetListingId }, { $inc: { favoritesCount: 1, bookmarksCount: 1 } });
+        listingRedis.invalidateListing(listingId, listing.slug, listing.propertyNumber, listing.category);
 
         return {
             isFavorite: true,
@@ -65,6 +68,7 @@ const toggleFavorite = async (userId: string, listingId: string) => {
 
         // Atomically increment favorites/bookmarks count on listing
         await ListingModel.updateOne({ _id: targetListingId }, { $inc: { favoritesCount: 1, bookmarksCount: 1 } });
+        listingRedis.invalidateListing(listingId, listing.slug, listing.propertyNumber, listing.category);
 
         await favorite.populate("listing", "title slug propertyNumber featuredImage category subCategory price priceUnit currency location ratingAverage totalReviews availabilityStatus isVerified favoritesCount bookmarksCount");
 

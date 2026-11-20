@@ -162,6 +162,21 @@ const userSchemaDefinition: any = {
     lastLogin: {
         type: Date,
     },
+
+    lastLoginIp: {
+        type: String,
+        default: null,
+    },
+
+    knownDevices: [
+        {
+            deviceId: { type: String, required: true },
+            userAgent: { type: String },
+            ipAddress: { type: String },
+            lastUsedAt: { type: Date, default: Date.now },
+            isTrusted: { type: Boolean, default: true },
+        },
+    ],
 };
 
 const UserSchema = new Schema<User>(userSchemaDefinition, {
@@ -218,5 +233,6 @@ UserSchema.index({ isWrongReferral: 1 });
 
 // Activity tracking optimization
 UserSchema.index({ lastLogin: -1 });
+UserSchema.index({ "knownDevices.deviceId": 1 }, { sparse: true });
 
 export const UserModel = mongoose.model<User>("User", UserSchema);

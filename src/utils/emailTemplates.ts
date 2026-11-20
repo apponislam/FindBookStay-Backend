@@ -299,3 +299,34 @@ export const sendContactReplyEmail = (email: string, recipientName: string, subj
     const html = renderBaseLayout({ preheader: `Support response regarding "${subject}"`, title, bodyHtml });
     sendMail(email, title, html);
 };
+
+/**
+ * 8. Suspicious Login / Account Lockout Alert Template
+ */
+export const sendSuspiciousLoginAlertEmail = (
+    email: string,
+    name: string,
+    details: { ip: string; userAgent?: string; time: Date; lockoutMinutes?: number }
+) => {
+    const title = "Security Alert: Suspicious Login Attempts Detected";
+    const bodyHtml = `
+        <h2 style="color: #991b1b; margin-top: 0; margin-bottom: 12px; font-size: 20px; font-weight: 700;">Security Alert ⚠️</h2>
+        <p style="margin-bottom: 16px; color: #475569;">Hello <strong>${name}</strong>,</p>
+        <p style="margin-bottom: 20px; color: #475569;">We detected multiple consecutive failed login attempts on your <strong>FindBookStay</strong> account. For your safety, the account has been temporarily locked.</p>
+        
+        <div style="background-color: #fef2f2; border-left: 4px solid #ef4444; border-radius: 8px; padding: 18px; margin: 24px 0;">
+            <h4 style="margin: 0 0 10px 0; color: #991b1b; font-size: 14px; font-weight: 700;">Incident Details:</h4>
+            <p style="margin: 4px 0; color: #1e293b; font-size: 13px;"><strong>IP Address:</strong> ${details.ip || "Unknown"}</p>
+            <p style="margin: 4px 0; color: #1e293b; font-size: 13px;"><strong>Device / Browser:</strong> ${details.userAgent || "Unknown client"}</p>
+            <p style="margin: 4px 0; color: #1e293b; font-size: 13px;"><strong>Timestamp:</strong> ${details.time.toUTCString()}</p>
+            ${details.lockoutMinutes ? `<p style="margin: 4px 0; color: #991b1b; font-size: 13px; font-weight: 600;"><strong>Temporary Lockout Duration:</strong> ${details.lockoutMinutes} minutes</p>` : ""}
+        </div>
+
+        <p style="font-size: 14px; color: #475569;">
+            If this was <strong>NOT</strong> you, an unauthorized party may be attempting to guess your password. We strongly recommend that you reset your password immediately once the temporary lockout expires.
+        </p>
+    `;
+
+    const html = renderBaseLayout({ preheader: "Security Alert: Multiple failed login attempts detected", title, bodyHtml });
+    sendMail(email, title, html);
+};

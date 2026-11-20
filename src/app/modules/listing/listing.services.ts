@@ -9,6 +9,7 @@ import { listingViewServices } from "../listingView/listingView.services";
 import { lastViewedServices } from "../lastViewed/lastViewed.services";
 import { UserModel } from "../auth/auth.model";
 import { activityLogServices } from "../activityLog/activityLog.services";
+import { listingRedis } from "./listing.redis";
 
 /**
  * Update user category flags (hasHome, hasStay, hasTurf, hasProperty)
@@ -104,6 +105,9 @@ const createListing = async (userId: string, userRole: string, payload: Partial<
         },
     });
 
+    // Evict stale search & aggregate stats cache
+    listingRedis.invalidateListing(listing._id.toString(), listing.slug, listing.propertyNumber, listing.category);
+
     return listing;
 };
 
@@ -129,10 +133,20 @@ const toArray = (val: any): string[] => {
 };
 
 /**
- * Get all listings with deep filtering across all verticals, full-text search, geo-radius, and pagination
+ * Get all listings with deep filtering across all verticals, full-text search, geo-radius, and pagination (Redis Cached)
  */
 const getAllListings = async (filters: Record<string, any>, reqUser?: { _id?: string; role?: string }) => {
-    const query: any = { isDeleted: false };
+    // 1. Fast Query Fingerprint & Cache-Aside Lookup (< 2ms)
+    const fingerprintInput = { ...filters, ...(reqUser?.role === "ADMIN" && { adminView: true }) };
+    const queryHash = listingRedis.generateQueryFingerprint(fingerprintInput);
+    const cachedSearch = await listingRedis.getCachedSearch(queryHash);
+
+    let pureResult: { meta: any; data: any[] };
+
+    if (cachedSearch) {
+        pureResult = cachedSearch;
+    } else {
+        const query: any = { isDeleted: false };
 
     // 1. Category and SubCategory (supports single value or comma-separated list)
     if (filters.category) {
@@ -531,13 +545,30 @@ const getAllListings = async (filters: Record<string, any>, reqUser?: { _id?: st
         findQuery = findQuery.select(projection);
     }
 
-    // Concurrent query and count for low latency
-    const [listings, total] = await Promise.all([findQuery, ListingModel.countDocuments(query)]);
+        // Concurrent query and count for low latency
+        const [listings, total] = await Promise.all([findQuery, ListingModel.countDocuments(query)]);
+        const totalPages = Math.ceil(total / limit) || 1;
 
-    // If caller is authenticated, batch-lookup favorites to attach isFavorite: true/false
-    let enrichedListings: any[] = listings;
-    if (reqUser?._id && listings.length > 0) {
-        const listingIds = listings.map((l: any) => l._id);
+        pureResult = {
+            meta: {
+                page,
+                limit,
+                total,
+                totalPages,
+                hasNext: page < totalPages,
+                hasPrev: page > 1,
+            },
+            data: listings,
+        };
+
+        // Populate search cache in Redis (3-minute TTL)
+        await listingRedis.setCachedSearch(queryHash, pureResult);
+    }
+
+    // 2. Dynamic Personalization Overlay: attach isFavorite
+    let enrichedListings: any[] = pureResult.data;
+    if (reqUser?._id && pureResult.data.length > 0) {
+        const listingIds = pureResult.data.map((l: any) => l._id);
         const favoriteListingIds = await FavoriteModel.find({
             user: new Types.ObjectId(reqUser._id),
             listing: { $in: listingIds },
@@ -545,58 +576,64 @@ const getAllListings = async (filters: Record<string, any>, reqUser?: { _id?: st
         }).distinct("listing");
 
         const favoriteSet = new Set(favoriteListingIds.map((id: any) => id.toString()));
-        enrichedListings = listings.map((l: any) => ({
+        enrichedListings = pureResult.data.map((l: any) => ({
             ...l,
             isFavorite: favoriteSet.has(l._id.toString()),
         }));
     } else {
-        enrichedListings = listings.map((l: any) => ({
+        enrichedListings = pureResult.data.map((l: any) => ({
             ...l,
             isFavorite: false,
         }));
     }
 
-    const totalPages = Math.ceil(total / limit) || 1;
-
     return {
-        meta: {
-            page,
-            limit,
-            total,
-            totalPages,
-            hasNext: page < totalPages,
-            hasPrev: page > 1,
-        },
+        meta: pureResult.meta,
         data: enrichedListings,
     };
 };
 
 /**
- * Get listing by ID or Slug (with background deduplicated unique view tracking)
+ * Get listing by ID, Slug, or Property Number (Redis Cache-Aside + Personalization Overlay)
  */
 const getListingByIdOrSlug = async (idOrSlug: string, reqUser?: { _id?: string; role?: string }, meta?: { ip?: string; userAgent?: string; visitorId?: string }) => {
-    const isId = Types.ObjectId.isValid(idOrSlug);
-    const filter: any = isId
-        ? {
-              $or: [
-                  { _id: idOrSlug },
-                  { slug: idOrSlug.toLowerCase() },
-                  { propertyNumber: idOrSlug },
-              ],
-              isDeleted: false,
-          }
-        : {
-              $or: [
-                  { slug: idOrSlug.toLowerCase() },
-                  { propertyNumber: idOrSlug },
-              ],
-              isDeleted: false,
-          };
-
-    const listing = await ListingModel.findOne(filter).populate("createdBy", "name email phone profileImage").populate("owner", "name email phone profileImage");
+    // 1. Fast Cache-Aside lookup in Redis (< 2ms)
+    let listing: any = await listingRedis.getCachedListing(idOrSlug);
 
     if (!listing) {
-        throw new ApiError(httpStatus.NOT_FOUND, "The requested listing could not be found.");
+        const isId = Types.ObjectId.isValid(idOrSlug);
+        const filter: any = isId
+            ? {
+                  $or: [
+                      { _id: idOrSlug },
+                      { slug: idOrSlug.toLowerCase() },
+                      { propertyNumber: idOrSlug },
+                  ],
+                  isDeleted: false,
+              }
+            : {
+                  $or: [
+                      { slug: idOrSlug.toLowerCase() },
+                      { propertyNumber: idOrSlug },
+                  ],
+                  isDeleted: false,
+              };
+
+        const dbListing = await ListingModel.findOne(filter)
+            .populate("createdBy", "name email phone profileImage")
+            .populate("owner", "name email phone profileImage")
+            .lean();
+
+        if (!dbListing) {
+            throw new ApiError(httpStatus.NOT_FOUND, "The requested listing could not be found.");
+        }
+
+        listing = dbListing;
+
+        // Cache the pure listing in Redis for active listings
+        if (listing.status === ListingStatus.ACTIVE) {
+            await listingRedis.setCachedListing(listing);
+        }
     }
 
     // Access control: if listing is not ACTIVE, only creator or ADMIN can view it
@@ -609,7 +646,7 @@ const getListingByIdOrSlug = async (idOrSlug: string, reqUser?: { _id?: string; 
         }
     }
 
-    // Check if caller has favorited this listing
+    // Dynamic Personalization Overlay: Check if caller has favorited this listing
     let isFavorite = false;
     if (reqUser?._id) {
         const fav = await FavoriteModel.exists({
@@ -630,10 +667,10 @@ const getListingByIdOrSlug = async (idOrSlug: string, reqUser?: { _id?: string; 
         }
     });
 
-    const listingObj: any = listing.toObject ? listing.toObject() : { ...listing };
-    listingObj.isFavorite = isFavorite;
-
-    return listingObj;
+    return {
+        ...listing,
+        isFavorite,
+    };
 };
 
 /**
@@ -737,6 +774,9 @@ const updateListing = async (id: string, userId: string, userRole: string, paylo
         metadata: { listingId: listing._id },
     });
 
+    // Evict cache
+    listingRedis.invalidateListing(id, (updated as any)?.slug || listing.slug, (updated as any)?.propertyNumber || listing.propertyNumber, listing.category);
+
     return updated;
 };
 
@@ -762,6 +802,9 @@ const deleteListing = async (id: string, userId: string, userRole: string, meta?
 
     listing.isDeleted = true;
     await listing.save();
+
+    // Evict cache
+    listingRedis.invalidateListing(id, listing.slug, listing.propertyNumber, listing.category);
 
     // Audit log
     activityLogServices.createActivityLog({
@@ -823,6 +866,9 @@ const approveOrRejectListing = async (id: string, adminId: string, payload: { st
         },
     });
 
+    // Evict stale search & aggregate stats cache
+    listingRedis.invalidateListing(listing._id.toString(), listing.slug, listing.propertyNumber, listing.category);
+
     return listing;
 };
 
@@ -842,6 +888,9 @@ const toggleFeatureStatus = async (id: string, adminId: string) => {
     listing.isFeatured = !listing.isFeatured;
     await listing.save();
 
+    // Evict stale search & aggregate stats cache
+    listingRedis.invalidateListing(listing._id.toString(), listing.slug, listing.propertyNumber, listing.category);
+
     return listing;
 };
 
@@ -860,6 +909,9 @@ const toggleVerification = async (id: string, adminId: string) => {
 
     listing.isVerified = !listing.isVerified;
     await listing.save();
+
+    // Evict stale search & aggregate stats cache
+    listingRedis.invalidateListing(listing._id.toString(), listing.slug, listing.propertyNumber, listing.category);
 
     return listing;
 };
@@ -887,13 +939,25 @@ const updateAvailabilityStatus = async (id: string, userId: string, userRole: st
     listing.availabilityStatus = availabilityStatus;
     await listing.save();
 
+    // Evict stale search & aggregate stats cache
+    listingRedis.invalidateListing(listing._id.toString(), listing.slug, listing.propertyNumber, listing.category);
+
     return listing;
 };
 
 /**
- * Get Featured Listings across or within a category
+ * Get Featured Listings across or within a category (Redis Cache-Aside)
  */
 const getFeaturedListings = async (category?: ListingCategory, limit: number = 8) => {
+    const catKey = category || "all";
+    const numLimit = Number(limit) || 8;
+
+    // 1. Fast Cache-Aside lookup (< 2ms)
+    const cached = await listingRedis.getCachedFeatured(catKey, numLimit);
+    if (cached) {
+        return cached;
+    }
+
     const query: any = {
         isFeatured: true,
         status: ListingStatus.ACTIVE,
@@ -903,17 +967,26 @@ const getFeaturedListings = async (category?: ListingCategory, limit: number = 8
 
     const listings = await ListingModel.find(query)
         .sort({ createdAt: -1 })
-        .limit(Number(limit) || 8)
+        .limit(numLimit)
         .populate("createdBy", "name email phone profileImage")
         .lean();
+
+    // 2. Populate Redis Cache
+    await listingRedis.setCachedFeatured(catKey, numLimit, listings);
 
     return listings;
 };
 
 /**
- * Get Marketplace Overview Statistics
+ * Get Marketplace Overview Statistics (Redis Cache-Aside)
  */
 const getListingStats = async () => {
+    // 1. Fast Cache-Aside lookup
+    const cached = await listingRedis.getCachedStats();
+    if (cached) {
+        return cached;
+    }
+
     const [total, active, pending, categories, topCities] = await Promise.all([
         ListingModel.countDocuments({ isDeleted: false }),
         ListingModel.countDocuments({ status: ListingStatus.ACTIVE, isDeleted: false }),
@@ -945,7 +1018,7 @@ const getListingStats = async () => {
         ]),
     ]);
 
-    return {
+    const stats = {
         totalListings: total,
         activeListings: active,
         pendingApprovalListings: pending,
@@ -955,6 +1028,11 @@ const getListingStats = async () => {
         }, {}),
         topCities: topCities.map((c) => ({ city: c._id, count: c.count })),
     };
+
+    // 2. Populate Redis Cache
+    await listingRedis.setCachedStats(stats);
+
+    return stats;
 };
 
 export const listingServices = {

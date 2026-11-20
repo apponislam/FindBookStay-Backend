@@ -11,10 +11,22 @@ const REDIS_TTL = {
     EMAIL_UPDATE: 24 * 60 * 60, // 24 hours
     COOLDOWN: 60, // 60 seconds resend cooldown
     MAX_ATTEMPTS: 5,
+    LOGIN_LOCKOUT: 15 * 60, // 15 minutes lockout after 5 consecutive failures
+    LOGIN_RATE_WINDOW: 15 * 60, // 15 minutes rate limit sliding window
+    LOGIN_MAX_FAILED_ATTEMPTS: 5,
+    LOGIN_IP_RATE_LIMIT: 25, // max 25 login attempts per 15 min per IP
+    LOGIN_ACCOUNT_RATE_LIMIT: 10, // max 10 login attempts per 15 min per account
+    REFRESH_TOKEN: 30 * 24 * 60 * 60, // 30 days
 };
 
 // Key prefix patterns
 const KEYS = {
+    loginRateIp: (ip: string) => `auth:login:rate:ip:${ip}`,
+    loginRateAccount: (email: string) => `auth:login:rate:acc:${email.toLowerCase()}`,
+    loginFailed: (email: string) => `auth:login:failed:${email.toLowerCase()}`,
+    loginLockout: (email: string) => `auth:login:locked:${email.toLowerCase()}`,
+    refreshToken: (userId: string, tokenId: string) => `auth:refresh:${userId}:${tokenId}`,
+
     pwdResetOtp: (email: string) => `auth:pwd_reset:otp:${email.toLowerCase()}`,
     pwdResetCooldown: (email: string) => `auth:pwd_reset:cooldown:${email.toLowerCase()}`,
     pwdResetToken: (hashedToken: string) => `auth:pwd_reset:token:${hashedToken}`,
@@ -386,10 +398,181 @@ const clearEmailUpdateClaim = async (userId: string, pendingEmail: string, hashe
     await pipeline.exec();
 };
 
+/* ==========================================================================
+   D. Engineered Login Security (Rate Limiting, Lockout & RTR)
+   ========================================================================== */
+
+/**
+ * Check dual-key rate limits for IP and targeted account
+ */
+const checkLoginRateLimits = async (ip: string, email: string): Promise<void> => {
+    const normalizedEmail = email.toLowerCase().trim();
+    const lockoutKey = KEYS.loginLockout(normalizedEmail);
+
+    // 1. Check if account is temporarily locked
+    const isLocked = await redis.get(lockoutKey);
+    if (isLocked) {
+        const ttlSeconds = await redis.ttl(lockoutKey);
+        const minutes = Math.max(1, Math.ceil(ttlSeconds / 60));
+        throw new ApiError(
+            httpStatus.TOO_MANY_REQUESTS,
+            `This account is temporarily locked due to multiple consecutive failed login attempts. Please try again in ${minutes} minute(s) or reset your password.`
+        );
+    }
+
+    // 2. Dual-Key IP Rate Limit
+    if (ip && ip !== "Unknown") {
+        const ipKey = KEYS.loginRateIp(ip);
+        const ipCount = await redis.incr(ipKey);
+        if (ipCount === 1) {
+            await redis.expire(ipKey, REDIS_TTL.LOGIN_RATE_WINDOW);
+        }
+        if (ipCount > REDIS_TTL.LOGIN_IP_RATE_LIMIT) {
+            const ttlSeconds = await redis.ttl(ipKey);
+            const minutes = Math.max(1, Math.ceil(ttlSeconds / 60));
+            throw new ApiError(
+                httpStatus.TOO_MANY_REQUESTS,
+                `Too many login attempts from this network. Please wait ${minutes} minute(s) before trying again.`
+            );
+        }
+    }
+
+    // 3. Dual-Key Account Rate Limit
+    const accKey = KEYS.loginRateAccount(normalizedEmail);
+    const accCount = await redis.incr(accKey);
+    if (accCount === 1) {
+        await redis.expire(accKey, REDIS_TTL.LOGIN_RATE_WINDOW);
+    }
+    if (accCount > REDIS_TTL.LOGIN_ACCOUNT_RATE_LIMIT) {
+        const ttlSeconds = await redis.ttl(accKey);
+        const minutes = Math.max(1, Math.ceil(ttlSeconds / 60));
+        throw new ApiError(
+            httpStatus.TOO_MANY_REQUESTS,
+            `Too many login requests targeting this account. Please wait ${minutes} minute(s) before trying again.`
+        );
+    }
+};
+
+/**
+ * Record failed login attempt and trigger temporary account lockout if threshold reached
+ */
+const recordFailedLogin = async (
+    email: string,
+    ip: string
+): Promise<{ locked: boolean; attempts: number; remaining: number; lockoutMinutes: number }> => {
+    const normalizedEmail = email.toLowerCase().trim();
+    const failKey = KEYS.loginFailed(normalizedEmail);
+
+    const attempts = await redis.incr(failKey);
+    if (attempts === 1) {
+        await redis.expire(failKey, REDIS_TTL.LOGIN_RATE_WINDOW);
+    }
+
+    if (attempts >= REDIS_TTL.LOGIN_MAX_FAILED_ATTEMPTS) {
+        const pipeline = redis.pipeline();
+        pipeline.set(KEYS.loginLockout(normalizedEmail), "1", "EX", REDIS_TTL.LOGIN_LOCKOUT);
+        pipeline.del(failKey);
+        await pipeline.exec();
+
+        return {
+            locked: true,
+            attempts,
+            remaining: 0,
+            lockoutMinutes: Math.ceil(REDIS_TTL.LOGIN_LOCKOUT / 60),
+        };
+    }
+
+    return {
+        locked: false,
+        attempts,
+        remaining: Math.max(0, REDIS_TTL.LOGIN_MAX_FAILED_ATTEMPTS - attempts),
+        lockoutMinutes: 0,
+    };
+};
+
+/**
+ * Clear failed login attempts upon successful password authentication
+ */
+const clearLoginFailures = async (email: string): Promise<void> => {
+    const normalizedEmail = email.toLowerCase().trim();
+    await redis.del(KEYS.loginFailed(normalizedEmail));
+};
+
+/**
+ * Store Refresh Token in Redis whitelist
+ */
+const storeRefreshToken = async (
+    userId: string,
+    tokenId: string,
+    ttlSeconds: number = REDIS_TTL.REFRESH_TOKEN
+): Promise<void> => {
+    await redis.set(KEYS.refreshToken(userId, tokenId), "1", "EX", ttlSeconds);
+};
+
+/**
+ * Verify old refresh token and rotate with new token (prevents replay attacks)
+ */
+const verifyAndRotateRefreshToken = async (
+    userId: string,
+    oldTokenId: string,
+    newTokenId: string,
+    ttlSeconds: number = REDIS_TTL.REFRESH_TOKEN
+): Promise<boolean> => {
+    const oldKey = KEYS.refreshToken(userId, oldTokenId);
+    const exists = await redis.get(oldKey);
+
+    if (!exists) {
+        console.warn(`🚨 [RTR Replay Attack]: Token ${oldTokenId} reused for user ${userId}. Revoking user tokens!`);
+        await revokeAllUserRefreshTokens(userId);
+        return false;
+    }
+
+    const pipeline = redis.pipeline();
+    pipeline.del(oldKey);
+    pipeline.set(KEYS.refreshToken(userId, newTokenId), "1", "EX", ttlSeconds);
+    await pipeline.exec();
+    return true;
+};
+
+/**
+ * Revoke single refresh token on sign-out
+ */
+const revokeRefreshToken = async (userId: string, tokenId: string): Promise<void> => {
+    await redis.del(KEYS.refreshToken(userId, tokenId));
+};
+
+/**
+ * Invalidate all refresh tokens for a user (on replay attack detection or password change)
+ */
+const revokeAllUserRefreshTokens = async (userId: string): Promise<void> => {
+    try {
+        let cursor = "0";
+        const pattern = `auth:refresh:${userId}:*`;
+        do {
+            const [nextCursor, keys] = await redis.scan(cursor, "MATCH", pattern, "COUNT", 50);
+            cursor = nextCursor;
+            if (keys && keys.length > 0) {
+                await redis.del(...keys);
+            }
+        } while (cursor !== "0");
+    } catch (err) {
+        console.error(`[Redis] Error revoking user refresh tokens:`, err);
+    }
+};
+
 export const authRedis = {
     // Hash & Comparison Utilities
     hashSecret,
     compareSecret,
+
+    // Engineered Login Security & RTR
+    checkLoginRateLimits,
+    recordFailedLogin,
+    clearLoginFailures,
+    storeRefreshToken,
+    verifyAndRotateRefreshToken,
+    revokeRefreshToken,
+    revokeAllUserRefreshTokens,
 
     // Password Reset
     checkPwdResetCooldown,

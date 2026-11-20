@@ -199,7 +199,7 @@ export const uploadProfileImage = (req: Request, res: Response, next: NextFuncti
                 req.file = {
                     ...file,
                     filename: optimized.filename,
-                    path: optimized.fullPath,
+                    path: optimized.relativePath,
                     destination: path.join(UPLOAD_ROOT, "profile"),
                 };
                 req.body.profileImage = optimized.relativePath;

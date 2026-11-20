@@ -1,5 +1,8 @@
 import { Address } from "./auth.interface";
 import { geocode } from "../../../utils/geocode";
+import crypto from "crypto";
+import axios from "axios";
+import config from "../../config";
 
 export const buildAddressString = (addr?: Partial<Address>): string => {
     if (!addr) return "";
@@ -133,4 +136,73 @@ export const resolveUserAddresses = async (
         permanentAddress: resolvedPermanent,
     };
 };
+
+/**
+ * 1. Cloudflare Turnstile / Bot Verification
+ */
+export const verifyTurnstileToken = async (token?: string, clientIp?: string): Promise<boolean> => {
+    const secretKey = (config as any).turnstile_secret_key || process.env.TURNSTILE_SECRET_KEY;
+    if (!secretKey) {
+        // In local/dev environments without Turnstile configured, bypass safely
+        return true;
+    }
+
+    if (!token) {
+        return false;
+    }
+
+    try {
+        const formData = new URLSearchParams();
+        formData.append("secret", secretKey);
+        formData.append("response", token);
+        if (clientIp) {
+            formData.append("remoteip", clientIp);
+        }
+
+        const response = await axios.post("https://challenges.cloudflare.com/turnstile/v0/siteverify", formData.toString(), {
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            timeout: 5000,
+        });
+
+        return Boolean(response.data?.success);
+    } catch (err: any) {
+        console.error("❌ [Turnstile Verification Error]:", err?.message || err);
+        return false;
+    }
+};
+
+/**
+ * 2. Generate or resolve deterministic device fingerprint identifier
+ */
+export const resolveDeviceIdentifier = (
+    clientDeviceId?: string,
+    userAgent?: string,
+    clientIp?: string
+): string => {
+    if (clientDeviceId && clientDeviceId.trim().length > 3) {
+        return clientDeviceId.trim();
+    }
+    const rawSignature = `${userAgent || "unknown-ua"}|${clientIp || "unknown-ip"}`;
+    return crypto.createHash("sha256").update(rawSignature).digest("hex").slice(0, 32);
+};
+
+/**
+ * 3. Normalize image paths to relative web-accessible URLs (/uploads/...)
+ * Strips local absolute filesystem paths (e.g. E:\... or C:\...) and converts Windows backslashes.
+ */
+export const normalizeImagePath = (img?: string): string | undefined => {
+    if (!img || typeof img !== "string") return undefined;
+    const normalized = img.replace(/\\/g, "/");
+    const uploadsIndex = normalized.indexOf("/uploads/");
+    if (uploadsIndex !== -1) {
+        return normalized.slice(uploadsIndex);
+    }
+    if (normalized.startsWith("uploads/")) {
+        return `/${normalized}`;
+    }
+    return normalized;
+};
+
 

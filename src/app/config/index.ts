@@ -45,6 +45,7 @@ export default {
         phone: process.env.INITIAL_ADMIN_PHONE,
     },
     maps_api_key: process.env.MAPS_API_KEY,
+    turnstile_secret_key: process.env.TURNSTILE_SECRET_KEY,
 
     redis: {
         url: process.env.REDIS_URL,

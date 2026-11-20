@@ -22,6 +22,14 @@ export interface ILiveLocation {
     speed?: number; // Speed in m/s
 }
 
+export interface IDeviceSession {
+    deviceId: string;
+    userAgent?: string;
+    ipAddress?: string;
+    lastUsedAt: Date;
+    isTrusted: boolean;
+}
+
 export interface User {
     name: string;
     email: string;
@@ -49,6 +57,8 @@ export interface User {
     isEmailVerified: boolean;
     isDeleted: boolean;
     lastLogin?: Date;
+    lastLoginIp?: string;
+    knownDevices?: IDeviceSession[];
 
     createdAt: Date;
     updatedAt: Date;

@@ -29,4 +29,3 @@ export interface IFAQ {
     createdAt?: Date;
     updatedAt?: Date;
 }
-

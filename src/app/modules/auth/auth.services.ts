@@ -5,10 +5,10 @@ import { jwtHelper } from "../../../utils/jwtHelper";
 import config from "../../config";
 import { UserModel } from "./auth.model";
 import { ILiveLocation } from "./auth.interface";
-import { resolveUserAddresses } from "./auth.utils";
+import { resolveUserAddresses, verifyTurnstileToken, resolveDeviceIdentifier, normalizeImagePath } from "./auth.utils";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
-import { sendOtpEmail, sendVerificationEmail, sendWelcomeEmail, sendEmailUpdateVerification } from "../../../utils/emailTemplates";
+import { sendOtpEmail, sendVerificationEmail, sendWelcomeEmail, sendEmailUpdateVerification, sendSuspiciousLoginAlertEmail } from "../../../utils/emailTemplates";
 import { authRedis } from "./auth.redis";
 
 const registerUser = async (data: any) => {
@@ -26,6 +26,7 @@ const registerUser = async (data: any) => {
         password: hashedPassword,
         isActive: true,
         isEmailVerified: false,
+        ...(data.profileImage && { profileImage: normalizeImagePath(data.profileImage) }),
     };
 
     // Verify referral code: user inputs the 8-character referral code (e.g. "VMOPEPTW")
@@ -101,16 +102,21 @@ const registerUser = async (data: any) => {
         console.error("⚠️ [Register User] Error storing verification in Redis or sending verification email:", redisOrMailError);
     }
 
-    // Generate tokens
+    // Generate tokens with unique session tracking
+    const tokenId = crypto.randomUUID();
     const jwtPayload = {
         _id: createdUser._id,
         name: createdUser.name,
         email: createdUser.email,
         role: createdUser.role,
+        tokenId,
     };
 
     const accessToken = jwtHelper.generateToken(jwtPayload, config.jwt_access_secret as string, config.jwt_access_expire as string);
     const refreshToken = jwtHelper.generateToken(jwtPayload, config.jwt_refresh_secret as string, config.jwt_refresh_expire as string);
+
+    // Whitelist active refresh token in Redis
+    await authRedis.storeRefreshToken(createdUser._id.toString(), tokenId);
 
     const userObject = createdUser.toObject();
     const { password: pwd, ...userWithoutSensitive } = userObject;
@@ -118,44 +124,119 @@ const registerUser = async (data: any) => {
     return { user: userWithoutSensitive, accessToken, refreshToken };
 };
 
-const loginUser = async (data: { email: string; password: string; fcmToken?: string }) => {
-    // Find user
-    const user = await UserModel.findOne({ email: data.email.toLowerCase(), isDeleted: false });
-    if (!user) throw new ApiError(httpStatus.UNAUTHORIZED, "Incorrect email or password. Please verify your credentials and try again.");
+const loginUser = async (
+    data: {
+        email: string;
+        password: string;
+        fcmToken?: string;
+        deviceId?: string;
+        turnstileToken?: string;
+    },
+    context: {
+        ip?: string;
+        userAgent?: string;
+        deviceId?: string;
+    },
+) => {
+    const normalizedEmail = (data.email || "").toLowerCase().trim();
+    const clientIp = context.ip || "Unknown";
+    const userAgent = context.userAgent || "Unknown";
+    const deviceId = resolveDeviceIdentifier(data.deviceId || context.deviceId, userAgent, clientIp);
 
-    // Check password
+    // 1. WAF / Bot Shield Verification (Cloudflare Turnstile)
+    const isBotChallengePassed = await verifyTurnstileToken(data.turnstileToken, clientIp);
+    if (!isBotChallengePassed) {
+        throw new ApiError(httpStatus.BAD_REQUEST, "Security verification failed. Please complete the security check to proceed.");
+    }
+
+    // 2. Dual-Key Rate Limiting (Redis: IP + Account)
+    await authRedis.checkLoginRateLimits(clientIp, normalizedEmail);
+
+    // 3. User & Password Verification with Lockout Counter
+    const user = await UserModel.findOne({ email: normalizedEmail, isDeleted: false });
+    if (!user) {
+        const failResult = await authRedis.recordFailedLogin(normalizedEmail, clientIp);
+        if (failResult.locked) {
+            throw new ApiError(httpStatus.TOO_MANY_REQUESTS, `This account is temporarily locked for ${failResult.lockoutMinutes} minutes due to multiple consecutive failed login attempts.`);
+        }
+        throw new ApiError(httpStatus.UNAUTHORIZED, `Incorrect email or password. You have ${failResult.remaining} attempt(s) remaining before temporary lockout.`);
+    }
+
     const isPasswordValid = await bcrypt.compare(data.password, user.password as string);
-    if (!isPasswordValid) throw new ApiError(httpStatus.UNAUTHORIZED, "Incorrect email or password. Please verify your credentials and try again.");
+    if (!isPasswordValid) {
+        const failResult = await authRedis.recordFailedLogin(normalizedEmail, clientIp);
+        if (failResult.locked) {
+            sendSuspiciousLoginAlertEmail(user.email, user.name, {
+                ip: clientIp,
+                userAgent,
+                time: new Date(),
+                lockoutMinutes: failResult.lockoutMinutes,
+            });
+            throw new ApiError(httpStatus.TOO_MANY_REQUESTS, `This account is temporarily locked for ${failResult.lockoutMinutes} minutes due to multiple consecutive failed login attempts.`);
+        }
+        throw new ApiError(httpStatus.UNAUTHORIZED, `Incorrect email or password. You have ${failResult.remaining} attempt(s) remaining before temporary lockout.`);
+    }
 
-    // Check if active
+    // Password matches -> Clear failure counter in Redis
+    await authRedis.clearLoginFailures(normalizedEmail);
+
+    // Check account active status
     if (!user.isActive) {
         const reasonMsg = user.disabledReason ? ` Reason: "${user.disabledReason}".` : "";
         throw new ApiError(httpStatus.FORBIDDEN, `Your account has been deactivated.${reasonMsg} Please contact support for assistance.`);
     }
 
-    // Update last login and optionally add FCM device token if provided (capped at 5 recent devices)
-    const updatePayload: any = { $set: { lastLogin: new Date() } };
+    // 4. Device Tracking & Session Update
+    const knownDevices = user.knownDevices || [];
+    const updatedKnownDevices = [
+        ...knownDevices.filter((d) => d.deviceId !== deviceId),
+        {
+            deviceId,
+            userAgent,
+            ipAddress: clientIp,
+            lastUsedAt: new Date(),
+            isTrusted: true,
+        },
+    ].slice(-10);
+
+    const updatePayload: any = {
+        $set: {
+            lastLogin: new Date(),
+            lastLoginIp: clientIp,
+            knownDevices: updatedKnownDevices,
+        },
+    };
+
     if (data.fcmToken) {
         const existingTokens: string[] = user.fcmTokens || [];
-        const cappedTokens = [...existingTokens.filter((t: string) => t !== data.fcmToken), data.fcmToken].slice(-5);
-        updatePayload.$set.fcmTokens = cappedTokens;
+        updatePayload.$set.fcmTokens = [...existingTokens.filter((t: string) => t !== data.fcmToken), data.fcmToken].slice(-5);
     }
+
     await UserModel.updateOne({ _id: user._id }, updatePayload);
 
-    // Generate tokens
+    // 5. Issue Short-Lived Access Token + Rotated Refresh Token (RTR)
+    const tokenId = crypto.randomUUID();
     const jwtPayload = {
         _id: user._id,
         name: user.name,
         email: user.email,
         role: user.role,
+        tokenId,
     };
 
     const accessToken = jwtHelper.generateToken(jwtPayload, config.jwt_access_secret as string, config.jwt_access_expire as string);
     const refreshToken = jwtHelper.generateToken(jwtPayload, config.jwt_refresh_secret as string, config.jwt_refresh_expire as string);
 
+    // Whitelist active refresh token in Redis
+    await authRedis.storeRefreshToken(user._id.toString(), tokenId);
+
     const { password, ...userWithoutPassword } = user.toObject();
 
-    return { user: userWithoutPassword, accessToken, refreshToken };
+    return {
+        user: userWithoutPassword,
+        accessToken,
+        refreshToken,
+    };
 };
 
 const verifyEmail = async (email: string, token?: string, otp?: string) => {
@@ -218,7 +299,10 @@ const refreshAccessToken = async (refreshToken: string) => {
     if (!refreshToken) throw new ApiError(httpStatus.UNAUTHORIZED, "Authentication session expired. Please sign in again.");
 
     try {
-        const decoded = jwtHelper.verifyToken(refreshToken, config.jwt_refresh_secret as string);
+        const decoded = jwtHelper.verifyToken(refreshToken, config.jwt_refresh_secret as string) as {
+            _id: string;
+            tokenId?: string;
+        };
 
         const user = await UserModel.findOne({ _id: decoded._id, isDeleted: false }).select("-password");
         if (!user) throw new ApiError(httpStatus.UNAUTHORIZED, "Account not found. Please sign in again.");
@@ -227,17 +311,32 @@ const refreshAccessToken = async (refreshToken: string) => {
             throw new ApiError(httpStatus.FORBIDDEN, "Your account has been deactivated. Please contact support.");
         }
 
+        const newTokenId = crypto.randomUUID();
+
+        // Enforce Refresh Token Rotation (RTR) & Replay Attack Defense
+        if (decoded.tokenId) {
+            const isRotated = await authRedis.verifyAndRotateRefreshToken(user._id.toString(), decoded.tokenId, newTokenId);
+            if (!isRotated) {
+                throw new ApiError(httpStatus.UNAUTHORIZED, "Refresh token has already been consumed or revoked. For your protection, please sign in again.");
+            }
+        } else {
+            await authRedis.storeRefreshToken(user._id.toString(), newTokenId);
+        }
+
         const jwtPayload = {
             _id: user._id,
             name: user.name,
             email: user.email,
             role: user.role,
+            tokenId: newTokenId,
         };
 
         const accessToken = jwtHelper.generateToken(jwtPayload, config.jwt_access_secret as string, config.jwt_access_expire as string);
+        const newRefreshToken = jwtHelper.generateToken(jwtPayload, config.jwt_refresh_secret as string, config.jwt_refresh_expire as string);
 
-        return { user, accessToken };
-    } catch (error) {
+        return { user, accessToken, refreshToken: newRefreshToken };
+    } catch (error: any) {
+        if (error instanceof ApiError) throw error;
         throw new ApiError(httpStatus.UNAUTHORIZED, "Your session has expired. Please sign in again to continue.");
     }
 };
@@ -319,6 +418,10 @@ const resetPassword = async (token: string, newPassword: string) => {
 };
 
 const updateProfile = async (userId: string, data: any) => {
+    if (data.profileImage) {
+        data.profileImage = normalizeImagePath(data.profileImage);
+    }
+
     if (data.presentAddress || data.permanentAddress || data.sameAsPresent) {
         let currentPresent = data.presentAddress;
         let currentPermanent = data.permanentAddress;
@@ -609,22 +712,13 @@ const removeFcmToken = async (userId: string, fcmToken: string) => {
  * Validate availability/validity of email, phone number, and referral code.
  * All 3 fields are optional; validates whatever is received and returns true/false per field.
  */
-const checkFieldValidity = async (payload: {
-    email?: string;
-    phone?: string;
-    phoneNumber?: string;
-    referral?: string;
-    referralCode?: string;
-}) => {
+const checkFieldValidity = async (payload: { email?: string; phone?: string; phoneNumber?: string; referral?: string; referralCode?: string }) => {
     const rawEmail = payload.email;
     const rawPhone = payload.phone || payload.phoneNumber;
     const rawReferral = payload.referral || payload.referralCode;
 
     if (rawEmail === undefined && rawPhone === undefined && rawReferral === undefined) {
-        throw new ApiError(
-            httpStatus.BAD_REQUEST,
-            "Please provide at least one field to check: 'email', 'phone', or 'referral'."
-        );
+        throw new ApiError(httpStatus.BAD_REQUEST, "Please provide at least one field to check: 'email', 'phone', or 'referral'.");
     }
 
     const response: {
@@ -748,9 +842,31 @@ const checkFieldValidity = async (payload: {
     return response;
 };
 
+const logoutUser = async (userId: string, refreshToken?: string, fcmToken?: string) => {
+    if (refreshToken) {
+        try {
+            const decoded = jwtHelper.verifyToken(refreshToken, config.jwt_refresh_secret as string) as {
+                tokenId?: string;
+            };
+            if (decoded?.tokenId) {
+                await authRedis.revokeRefreshToken(userId, decoded.tokenId);
+            }
+        } catch {
+            // Token already expired or malformed
+        }
+    }
+
+    if (fcmToken) {
+        await removeFcmToken(userId, fcmToken);
+    }
+
+    return { message: "Signed out successfully." };
+};
+
 export const authServices = {
     registerUser,
     loginUser,
+    logoutUser,
     verifyEmail,
     resendVerificationEmail,
     getUserById,

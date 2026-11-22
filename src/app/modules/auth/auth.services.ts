@@ -159,7 +159,10 @@ const loginUser = async (
         if (failResult.locked) {
             throw new ApiError(httpStatus.TOO_MANY_REQUESTS, `This account is temporarily locked for ${failResult.lockoutMinutes} minutes due to multiple consecutive failed login attempts.`);
         }
-        throw new ApiError(httpStatus.UNAUTHORIZED, `Incorrect email or password. You have ${failResult.remaining} attempt(s) remaining before temporary lockout.`);
+        if (failResult.remaining <= 2) {
+            throw new ApiError(httpStatus.UNAUTHORIZED, `Incorrect email or password. You have ${failResult.remaining} attempt(s) remaining before temporary lockout.`);
+        }
+        throw new ApiError(httpStatus.UNAUTHORIZED, "Incorrect email or password. Please try again.");
     }
 
     const isPasswordValid = await bcrypt.compare(data.password, user.password as string);
@@ -174,7 +177,10 @@ const loginUser = async (
             });
             throw new ApiError(httpStatus.TOO_MANY_REQUESTS, `This account is temporarily locked for ${failResult.lockoutMinutes} minutes due to multiple consecutive failed login attempts.`);
         }
-        throw new ApiError(httpStatus.UNAUTHORIZED, `Incorrect email or password. You have ${failResult.remaining} attempt(s) remaining before temporary lockout.`);
+        if (failResult.remaining <= 2) {
+            throw new ApiError(httpStatus.UNAUTHORIZED, `Incorrect email or password. You have ${failResult.remaining} attempt(s) remaining before temporary lockout.`);
+        }
+        throw new ApiError(httpStatus.UNAUTHORIZED, "Incorrect email or password. Please try again.");
     }
 
     // Password matches -> Clear failure counter in Redis

@@ -7,6 +7,7 @@ import { favoriteRoutes } from "../modules/favorite/favorite.routes";
 import { reportRoutes } from "../modules/report/report.routes";
 import { activityLogRoutes } from "../modules/activityLog/activityLog.routes";
 import { addressRoutes } from "../modules/address/address.routes";
+import { userAddressRoutes } from "../modules/userAddress/userAddress.routes";
 import { policyRoutes } from "../modules/policy/policy.routes";
 import { visitorRoutes } from "../modules/visitor/visitor.routes";
 import { conversationRoutes } from "../modules/conversation/conversation.routes";
@@ -17,6 +18,7 @@ import { notificationRoutes } from "../modules/notification/notification.routes"
 import { listingViewRoutes } from "../modules/listingView/listingView.routes";
 import { lastViewedRoutes } from "../modules/lastViewed/lastViewed.routes";
 import { faqRoutes } from "../modules/faq/faq.routes";
+import { toletRoutes } from "../modules/tolet/tolet.routes";
 import { swaggerRouter } from "../docs/swagger";
 
 const router = express.Router();
@@ -63,6 +65,10 @@ const moduleRoutes = [
         route: addressRoutes,
     },
     {
+        path: "/user-addresses",
+        route: userAddressRoutes,
+    },
+    {
         path: "/policies",
         route: policyRoutes,
     },
@@ -93,6 +99,10 @@ const moduleRoutes = [
     {
         path: "/faqs",
         route: faqRoutes,
+    },
+    {
+        path: "/tolets",
+        route: toletRoutes,
     },
     {
         path: "/docs",

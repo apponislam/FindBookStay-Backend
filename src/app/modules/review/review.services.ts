@@ -3,7 +3,10 @@ import httpStatus from "http-status";
 import ApiError from "../../../errors/ApiError";
 import { IReview } from "./review.interface";
 import { ReviewModel } from "./review.model";
-import { ListingModel } from "../listing/listing.model";
+import { HomeModel } from "../home/home.model";
+import { StayModel } from "../stay/stay.model";
+import { TurfModel } from "../turf/turf.model";
+import { PropertyModel } from "../property/property.model";
 import { activityLogServices } from "../activityLog/activityLog.services";
 
 /**
@@ -22,10 +25,19 @@ const createReview = async (
     const reviewerId = new Types.ObjectId(userId);
 
     // Verify listing exists and is active
-    const listing = await ListingModel.findOne({ _id: listingId, isDeleted: false });
+    const [home, stay, turf, property] = await Promise.all([
+        HomeModel.findOne({ _id: listingId, isDeleted: false }),
+        StayModel.findOne({ _id: listingId, isDeleted: false }),
+        TurfModel.findOne({ _id: listingId, isDeleted: false }),
+        PropertyModel.findOne({ _id: listingId, isDeleted: false }),
+    ]);
+    const listing = home || stay || turf || property;
+
     if (!listing) {
         throw new ApiError(httpStatus.NOT_FOUND, "The listing you are reviewing could not be found.");
     }
+
+    const itemModel = home ? "Home" : stay ? "Stay" : turf ? "Turf" : "Property";
 
     // Prevent property owner from reviewing their own listing
     if (listing.createdBy.toString() === userId.toString()) {
@@ -49,6 +61,7 @@ const createReview = async (
     const review = await ReviewModel.create({
         user: reviewerId,
         listing: listingId,
+        itemModel,
         rating: payload.rating,
         comment: payload.comment,
         images: payload.images || [],
@@ -68,7 +81,7 @@ const createReview = async (
     activityLogServices.createActivityLog({
         user: reviewerId,
         action: "CREATE_REVIEW",
-        module: (listing.category as any) || "SYSTEM",
+        module: ((listing as any).category as any) || "SYSTEM",
         description: `Left a ${payload.rating}-star review on "${listing.title}"`,
         status: "SUCCESS",
         ipAddress: meta?.ip,
@@ -320,7 +333,14 @@ const replyToReview = async (
         throw new ApiError(httpStatus.NOT_FOUND, "Review not found.");
     }
 
-    const listing = await ListingModel.findById(review.listing);
+    const [home, stay, turf, property] = await Promise.all([
+        HomeModel.findById(review.listing),
+        StayModel.findById(review.listing),
+        TurfModel.findById(review.listing),
+        PropertyModel.findById(review.listing),
+    ]);
+    const listing = home || stay || turf || property;
+
     if (!listing) {
         throw new ApiError(httpStatus.NOT_FOUND, "Associated listing not found.");
     }

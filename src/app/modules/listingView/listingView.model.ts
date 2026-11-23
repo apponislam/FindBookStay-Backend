@@ -5,7 +5,6 @@ const ListingViewSchema = new Schema<IListingView>(
     {
         listing: {
             type: Schema.Types.ObjectId,
-            ref: "Listing",
             required: [true, "Listing ID is required for view tracking."],
         },
         identifier: {

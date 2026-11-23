@@ -6,9 +6,10 @@ import { favoriteServices } from "./favorite.services";
 
 const toggleFavorite = catchAsync(async (req: Request, res: Response) => {
     const userId = (req.user as any)?._id?.toString();
-    const { listing } = req.body;
+    const listingId = req.body.listing || req.body.listingId;
+    const { category, itemModel } = req.body;
 
-    const result = await favoriteServices.toggleFavorite(userId, listing);
+    const result = await favoriteServices.toggleFavorite(userId, listingId, category, itemModel);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,

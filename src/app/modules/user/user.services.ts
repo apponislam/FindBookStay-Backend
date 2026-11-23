@@ -6,12 +6,18 @@ import config from "../../config";
 import ApiError from "../../../errors/ApiError";
 import { UserModel } from "../auth/auth.model";
 import { User } from "../auth/auth.interface";
-import { ListingModel } from "../listing/listing.model";
+import { HomeModel } from "../home/home.model";
+import { homeRedis } from "../home/home.redis";
+import { StayModel } from "../stay/stay.model";
+import { stayRedis } from "../stay/stay.redis";
+import { TurfModel } from "../turf/turf.model";
+import { turfRedis } from "../turf/turf.redis";
+import { PropertyModel } from "../property/property.model";
+import { propertyRedis } from "../property/property.redis";
 import { activityLogServices } from "../activityLog/activityLog.services";
 import { IUserStats } from "./user.interface";
 import { userRedis } from "./user.redis";
 import { authRedis } from "../auth/auth.redis";
-import { listingRedis } from "../listing/listing.redis";
 
 const toBoolean = (val: any): boolean | undefined => {
     if (val === undefined || val === null || val === "") return undefined;
@@ -144,11 +150,14 @@ const getUserById = async (userId: string) => {
         throw new ApiError(httpStatus.NOT_FOUND, "User account not found.");
     }
 
-    // Aggregate user's active listings count
-    const listingsCount = await ListingModel.countDocuments({
-        createdBy: new Types.ObjectId(userId),
-        isDeleted: false,
-    });
+    // Aggregate user's active listings count across all verticals
+    const [homesCount, staysCount, turfsCount, propertiesCount] = await Promise.all([
+        HomeModel.countDocuments({ createdBy: new Types.ObjectId(userId), isDeleted: false }),
+        StayModel.countDocuments({ createdBy: new Types.ObjectId(userId), isDeleted: false }),
+        TurfModel.countDocuments({ createdBy: new Types.ObjectId(userId), isDeleted: false }),
+        PropertyModel.countDocuments({ createdBy: new Types.ObjectId(userId), isDeleted: false }),
+    ]);
+    const listingsCount = homesCount + staysCount + turfsCount + propertiesCount;
 
     const result = {
         ...user,
@@ -206,27 +215,24 @@ const updateUserStatus = async (
     if (payload.isActive === false) {
         await authRedis.revokeAllUserRefreshTokens(userId);
 
-        const userListings = await ListingModel.find({
-            createdBy: user._id,
-            isDeleted: false,
-        }).select("_id slug propertyNumber category").lean();
+        const [homes, stays, turfs, properties] = await Promise.all([
+            HomeModel.find({ createdBy: user._id, isDeleted: false }).select("_id slug propertyNumber").lean(),
+            StayModel.find({ createdBy: user._id, isDeleted: false }).select("_id slug propertyNumber").lean(),
+            TurfModel.find({ createdBy: user._id, isDeleted: false }).select("_id slug propertyNumber").lean(),
+            PropertyModel.find({ createdBy: user._id, isDeleted: false }).select("_id slug propertyNumber").lean(),
+        ]);
 
-        if (userListings.length > 0) {
-            await ListingModel.updateMany(
-                { createdBy: user._id, isDeleted: false },
-                { $set: { isAvailable: false } }
-            );
+        await Promise.all([
+            HomeModel.updateMany({ createdBy: user._id, isDeleted: false }, { $set: { status: "INACTIVE" } }),
+            StayModel.updateMany({ createdBy: user._id, isDeleted: false }, { $set: { status: "INACTIVE" } }),
+            TurfModel.updateMany({ createdBy: user._id, isDeleted: false }, { $set: { status: "INACTIVE" } }),
+            PropertyModel.updateMany({ createdBy: user._id, isDeleted: false }, { $set: { status: "INACTIVE" } }),
+        ]);
 
-            // Invalidate Redis cache for each listing to eliminate ghost listings
-            for (const item of userListings) {
-                await listingRedis.invalidateListing(
-                    item._id.toString(),
-                    item.slug,
-                    item.propertyNumber,
-                    item.category
-                );
-            }
-        }
+        for (const h of homes) await homeRedis.invalidateHome(h._id.toString(), h.slug, h.propertyNumber);
+        for (const s of stays) await stayRedis.invalidateStay(s._id.toString(), s.slug, s.propertyNumber);
+        for (const t of turfs) await turfRedis.invalidateTurf(t._id.toString(), t.slug, t.propertyNumber);
+        for (const p of properties) await propertyRedis.invalidateProperty(p._id.toString(), p.slug, p.propertyNumber);
     }
 
     // Audit log
@@ -403,16 +409,22 @@ const deleteUserByAdmin = async (
     // Invalidate user cache
     await userRedis.invalidateUser(userId);
 
-    // Find and invalidate user's listings
-    const userListings = await ListingModel.find({ createdBy: user._id })
-        .select("_id slug propertyNumber category")
-        .lean();
+    // Find and invalidate user's listings across all verticals
+    const [homes, stays, turfs, properties] = await Promise.all([
+        HomeModel.find({ createdBy: user._id }).select("_id slug propertyNumber").lean(),
+        StayModel.find({ createdBy: user._id }).select("_id slug propertyNumber").lean(),
+        TurfModel.find({ createdBy: user._id }).select("_id slug propertyNumber").lean(),
+        PropertyModel.find({ createdBy: user._id }).select("_id slug propertyNumber").lean(),
+    ]);
 
     if (hardDelete) {
         await UserModel.findByIdAndDelete(userId);
-        if (userListings.length > 0) {
-            await ListingModel.deleteMany({ createdBy: user._id });
-        }
+        await Promise.all([
+            HomeModel.deleteMany({ createdBy: user._id }),
+            StayModel.deleteMany({ createdBy: user._id }),
+            TurfModel.deleteMany({ createdBy: user._id }),
+            PropertyModel.deleteMany({ createdBy: user._id }),
+        ]);
     } else {
         user.isDeleted = true;
         user.isActive = false;
@@ -421,22 +433,19 @@ const deleteUserByAdmin = async (
         user.disabledBy = new Types.ObjectId(adminId);
         await user.save();
 
-        // Also soft-delete listings created by this user
-        await ListingModel.updateMany(
-            { createdBy: user._id, isDeleted: false },
-            { $set: { isDeleted: true } }
-        );
+        await Promise.all([
+            HomeModel.updateMany({ createdBy: user._id, isDeleted: false }, { $set: { isDeleted: true, status: "INACTIVE" } }),
+            StayModel.updateMany({ createdBy: user._id, isDeleted: false }, { $set: { isDeleted: true, status: "INACTIVE" } }),
+            TurfModel.updateMany({ createdBy: user._id, isDeleted: false }, { $set: { isDeleted: true, status: "INACTIVE" } }),
+            PropertyModel.updateMany({ createdBy: user._id, isDeleted: false }, { $set: { isDeleted: true, status: "INACTIVE" } }),
+        ]);
     }
 
     // Purge cached listing documents from Redis
-    for (const item of userListings) {
-        await listingRedis.invalidateListing(
-            item._id.toString(),
-            item.slug,
-            item.propertyNumber,
-            item.category
-        );
-    }
+    for (const h of homes) await homeRedis.invalidateHome(h._id.toString(), h.slug, h.propertyNumber);
+    for (const s of stays) await stayRedis.invalidateStay(s._id.toString(), s.slug, s.propertyNumber);
+    for (const t of turfs) await turfRedis.invalidateTurf(t._id.toString(), t.slug, t.propertyNumber);
+    for (const p of properties) await propertyRedis.invalidateProperty(p._id.toString(), p.slug, p.propertyNumber);
 
     // Audit log
     activityLogServices.createActivityLog({

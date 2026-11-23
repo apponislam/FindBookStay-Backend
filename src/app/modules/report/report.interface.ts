@@ -1,5 +1,4 @@
 import { Types } from "mongoose";
-import { IListing } from "../listing/listing.interface";
 import { User } from "../auth/auth.interface";
 
 export enum ReportTargetType {
@@ -44,7 +43,7 @@ export interface IReport {
     _id?: Types.ObjectId;
     reporter: Types.ObjectId | User;
     targetType: ReportTargetType;
-    reportedListing?: Types.ObjectId | IListing;
+    reportedListing?: Types.ObjectId | any;
     reportedUser?: Types.ObjectId | User;
     reason: ReportReason;
     description: string;

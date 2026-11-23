@@ -2,8 +2,15 @@ import mongoose from "mongoose";
 import httpStatus from "http-status";
 import ApiError from "../../../errors/ApiError";
 import { SettingsModel } from "./settings.model";
+import { settingsRedis } from "./settings.redis";
 
 const getMySettings = async (userId: string) => {
+    // 1. Check Redis cache first
+    const cached = await settingsRedis.getCachedUserSettings(userId);
+    if (cached) {
+        return cached;
+    }
+
     const userObjectId = new mongoose.Types.ObjectId(userId);
 
     let settings = await SettingsModel.findOne({ user: userObjectId });
@@ -15,7 +22,10 @@ const getMySettings = async (userId: string) => {
         });
     }
 
-    return settings;
+    const result = settings.toObject ? settings.toObject() : settings;
+    await settingsRedis.setCachedUserSettings(userId, result);
+
+    return result;
 };
 
 const updateMySettings = async (userId: string, payload: Record<string, any>) => {
@@ -65,6 +75,13 @@ const updateMySettings = async (userId: string, payload: Record<string, any>) =>
         },
     );
 
+    // Invalidate and re-cache updated settings
+    await settingsRedis.invalidateUserSettings(userId);
+    if (updated) {
+        const result = updated.toObject ? updated.toObject() : updated;
+        await settingsRedis.setCachedUserSettings(userId, result);
+    }
+
     return updated;
 };
 
@@ -77,6 +94,12 @@ const resetMySettings = async (userId: string) => {
     const freshSettings = await SettingsModel.create({
         user: userObjectId,
     });
+
+    await settingsRedis.invalidateUserSettings(userId);
+    if (freshSettings) {
+        const result = freshSettings.toObject ? freshSettings.toObject() : freshSettings;
+        await settingsRedis.setCachedUserSettings(userId, result);
+    }
 
     return freshSettings;
 };
@@ -105,4 +128,3 @@ export const settingsServices = {
     resetMySettings,
     getUserSettings,
 };
-

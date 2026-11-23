@@ -8,16 +8,20 @@ const NotificationSubSchema = new Schema(
             messages: { type: Boolean, default: true },
             promotions: { type: Boolean, default: false },
             accountAlerts: { type: Boolean, default: true },
+            reminders: { type: Boolean, default: true },
+            newsletter: { type: Boolean, default: false },
         },
         pushNotifications: {
             bookings: { type: Boolean, default: true },
             messages: { type: Boolean, default: true },
             promotions: { type: Boolean, default: false },
             reminders: { type: Boolean, default: true },
+            chatMessages: { type: Boolean, default: true },
         },
         smsNotifications: {
             bookingAlerts: { type: Boolean, default: true },
             securityAlerts: { type: Boolean, default: true },
+            otpAlerts: { type: Boolean, default: true },
         },
     },
     { _id: false },
@@ -29,6 +33,7 @@ const PrivacySubSchema = new Schema(
         showOnlineStatus: { type: Boolean, default: true },
         showLastSeen: { type: Boolean, default: true },
         allowDirectMessages: { type: Boolean, default: true },
+        showPhoneNumber: { type: Boolean, default: false },
     },
     { _id: false },
 );
@@ -55,6 +60,15 @@ const PreferencesSubSchema = new Schema(
             type: String,
             default: "Asia/Dhaka",
             trim: true,
+        },
+        distanceUnit: {
+            type: String,
+            enum: ["km", "miles"],
+            default: "km",
+        },
+        preferredCategories: {
+            type: [String],
+            default: ["HOME", "STAY", "TURF", "PROPERTY"],
         },
     },
     { _id: false },
@@ -88,4 +102,3 @@ const SettingsSchema = new Schema<ISettings>(
 );
 
 export const SettingsModel = mongoose.model<ISettings>("Settings", SettingsSchema);
-

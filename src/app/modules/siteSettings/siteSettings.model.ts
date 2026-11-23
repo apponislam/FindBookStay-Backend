@@ -9,6 +9,8 @@ const SocialLinksSchema = new Schema(
         youtube: { type: String, default: "", trim: true },
         linkedin: { type: String, default: "", trim: true },
         whatsapp: { type: String, default: "", trim: true },
+        tiktok: { type: String, default: "", trim: true },
+        telegram: { type: String, default: "", trim: true },
     },
     { _id: false },
 );
@@ -21,6 +23,21 @@ const BusinessRulesSchema = new Schema(
         taxPercentage: { type: Number, default: 0, min: 0, max: 100 },
         defaultCurrency: { type: String, default: "BDT", trim: true, uppercase: true },
         currencySymbol: { type: String, default: "৳", trim: true },
+        enableInstantBooking: { type: Boolean, default: true },
+        securityDepositRequired: { type: Boolean, default: false },
+    },
+    { _id: false },
+);
+
+const FeatureFlagsSchema = new Schema(
+    {
+        enableHomes: { type: Boolean, default: true },
+        enableStays: { type: Boolean, default: true },
+        enableTurfs: { type: Boolean, default: true },
+        enableProperties: { type: Boolean, default: true },
+        enableTolets: { type: Boolean, default: true },
+        enableReviews: { type: Boolean, default: true },
+        enableDirectMessaging: { type: Boolean, default: true },
     },
     { _id: false },
 );
@@ -51,13 +68,22 @@ const MaintenanceSchema = new Schema(
 
 const SeoSchema = new Schema(
     {
-        metaTitle: { type: String, default: "FindBookStay - Rent Homes, Stays & Turfs", trim: true },
-        metaDescription: {
+        metaTitle: {
             type: String,
-            default: "FindBookStay is your premier platform to find, book, and enjoy residential homes, temporary stays, vacation rentals, and sports turfs.",
+            default: "FindBookStay - Find, Book & Rent Homes, Stays, Turfs & Properties",
             trim: true,
         },
-        metaKeywords: { type: [String], default: ["rent", "stay", "turf", "booking", "apartment", "hotel"] },
+        metaDescription: {
+            type: String,
+            default:
+                "FindBookStay is your premier platform to find, book, and enjoy residential homes, temporary stays, vacation rentals, sports turfs, and commercial & residential properties.",
+            trim: true,
+        },
+        metaKeywords: {
+            type: [String],
+            default: ["homes", "stays", "turfs", "properties", "rent", "tolet", "booking", "apartment", "hotel", "bangladesh"],
+        },
+        ogImage: { type: String, default: "/public/og-image.png", trim: true },
     },
     { _id: false },
 );
@@ -114,6 +140,10 @@ const SiteSettingsSchema = new Schema<ISiteSettings>(
             type: BusinessRulesSchema,
             default: () => ({}),
         },
+        features: {
+            type: FeatureFlagsSchema,
+            default: () => ({}),
+        },
         appSettings: {
             type: AppSettingsSchema,
             default: () => ({}),
@@ -139,4 +169,3 @@ const SiteSettingsSchema = new Schema<ISiteSettings>(
 );
 
 export const SiteSettingsModel = mongoose.model<ISiteSettings>("SiteSettings", SiteSettingsSchema);
-

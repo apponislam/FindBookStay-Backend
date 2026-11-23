@@ -1,6 +1,6 @@
 import mongoose, { Schema } from "mongoose";
 import { IFavorite } from "./favorite.interface";
-import { ListingCategory } from "../listing/listing.interface";
+import { ListingCategory } from "../../enums/listingCategory";
 
 const FavoriteSchema = new Schema<IFavorite>(
     {
@@ -11,8 +11,13 @@ const FavoriteSchema = new Schema<IFavorite>(
         },
         listing: {
             type: Schema.Types.ObjectId,
-            ref: "Listing",
+            refPath: "itemModel",
             required: [true, "Listing ID is required."],
+        },
+        itemModel: {
+            type: String,
+            enum: ["Home", "Stay", "Turf", "Property"],
+            default: "Home",
         },
         category: {
             type: String,

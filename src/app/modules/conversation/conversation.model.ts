@@ -12,7 +12,6 @@ const ConversationSchema = new Schema<IConversation>(
         ],
         listing: {
             type: Schema.Types.ObjectId,
-            ref: "Listing",
             default: null,
         },
         lastMessage: {

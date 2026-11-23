@@ -1,5 +1,6 @@
 import { Types } from "mongoose";
-import { IListing } from "../listing/listing.interface";
+
+export type ReviewItemModel = "Home" | "Stay" | "Turf" | "Property";
 
 export interface IReviewSubRatings {
     cleanliness?: number;
@@ -18,7 +19,8 @@ export interface IReviewReply {
 export interface IReview {
     _id?: Types.ObjectId;
     user: Types.ObjectId;
-    listing: Types.ObjectId | IListing;
+    listing: Types.ObjectId | any;
+    itemModel?: ReviewItemModel;
     rating: number; // 1 to 5
     comment: string;
     images?: string[];

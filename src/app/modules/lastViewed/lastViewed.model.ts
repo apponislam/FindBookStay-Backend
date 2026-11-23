@@ -1,13 +1,18 @@
 import mongoose, { Schema } from "mongoose";
 import { ILastViewed, ILastViewedItem } from "./lastViewed.interface";
-import { ListingCategory } from "../listing/listing.interface";
+import { ListingCategory } from "../../enums/listingCategory";
 
 const LastViewedItemSchema = new Schema<ILastViewedItem>(
     {
         listing: {
             type: Schema.Types.ObjectId,
-            ref: "Listing",
             required: [true, "Listing ID is required."],
+            refPath: "items.itemModel",
+        },
+        itemModel: {
+            type: String,
+            enum: ["Home", "Stay", "Turf", "Property"],
+            default: "Home",
         },
         category: {
             type: String,
@@ -40,8 +45,9 @@ const LastViewedSchema = new Schema<ILastViewed>(
     }
 );
 
-// Unique index: 1 document per user
+// Indexes
 LastViewedSchema.index({ user: 1 }, { unique: true });
 LastViewedSchema.index({ "items.category": 1 });
+LastViewedSchema.index({ "items.listing": 1 });
 
 export const LastViewedModel = mongoose.model<ILastViewed>("LastViewed", LastViewedSchema);

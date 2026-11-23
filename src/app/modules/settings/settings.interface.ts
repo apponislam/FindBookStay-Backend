@@ -2,6 +2,7 @@ import { Types } from "mongoose";
 import { User } from "../auth/auth.interface";
 
 export type ThemeType = "light" | "dark" | "system";
+export type DistanceUnitType = "km" | "miles";
 
 export interface INotificationSettings {
     emailNotifications: {
@@ -9,16 +10,20 @@ export interface INotificationSettings {
         messages: boolean;
         promotions: boolean;
         accountAlerts: boolean;
+        reminders: boolean;
+        newsletter: boolean;
     };
     pushNotifications: {
         bookings: boolean;
         messages: boolean;
         promotions: boolean;
         reminders: boolean;
+        chatMessages: boolean;
     };
     smsNotifications: {
         bookingAlerts: boolean;
         securityAlerts: boolean;
+        otpAlerts: boolean;
     };
 }
 
@@ -27,6 +32,7 @@ export interface IPrivacySettings {
     showOnlineStatus: boolean;
     showLastSeen: boolean;
     allowDirectMessages: boolean;
+    showPhoneNumber: boolean;
 }
 
 export interface IPreferencesSettings {
@@ -34,6 +40,8 @@ export interface IPreferencesSettings {
     language: string;
     currency: string;
     timezone: string;
+    distanceUnit: DistanceUnitType;
+    preferredCategories: string[];
 }
 
 export interface ISettings {
@@ -45,4 +53,3 @@ export interface ISettings {
     createdAt?: Date;
     updatedAt?: Date;
 }
-

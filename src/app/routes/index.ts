@@ -1,7 +1,6 @@
 import express from "express";
 import { authRoutes } from "../modules/auth/auth.routes";
 import { userRoutes } from "../modules/user/user.routes";
-import { listingRoutes } from "../modules/listing/listing.routes";
 import { reviewRoutes } from "../modules/review/review.routes";
 import { favoriteRoutes } from "../modules/favorite/favorite.routes";
 import { reportRoutes } from "../modules/report/report.routes";
@@ -19,6 +18,10 @@ import { listingViewRoutes } from "../modules/listingView/listingView.routes";
 import { lastViewedRoutes } from "../modules/lastViewed/lastViewed.routes";
 import { faqRoutes } from "../modules/faq/faq.routes";
 import { toletRoutes } from "../modules/tolet/tolet.routes";
+import { homeRoutes } from "../modules/home/home.routes";
+import { stayRoutes } from "../modules/stay/stay.routes";
+import { turfRoutes } from "../modules/turf/turf.routes";
+import { propertyRoutes } from "../modules/property/property.routes";
 import { swaggerRouter } from "../docs/swagger";
 
 const router = express.Router();
@@ -31,10 +34,6 @@ const moduleRoutes = [
     {
         path: "/users",
         route: userRoutes,
-    },
-    {
-        path: "/listings",
-        route: listingRoutes,
     },
     {
         path: "/listing-views",
@@ -103,6 +102,22 @@ const moduleRoutes = [
     {
         path: "/tolets",
         route: toletRoutes,
+    },
+    {
+        path: "/homes",
+        route: homeRoutes,
+    },
+    {
+        path: "/stays",
+        route: stayRoutes,
+    },
+    {
+        path: "/turfs",
+        route: turfRoutes,
+    },
+    {
+        path: "/properties",
+        route: propertyRoutes,
     },
     {
         path: "/docs",

@@ -24,7 +24,6 @@ const ReportSchema = new Schema<IReport>(
         },
         reportedListing: {
             type: Schema.Types.ObjectId,
-            ref: "Listing",
         },
         reportedUser: {
             type: Schema.Types.ObjectId,

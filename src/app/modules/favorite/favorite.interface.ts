@@ -1,10 +1,13 @@
 import { Types } from "mongoose";
-import { IListing, ListingCategory } from "../listing/listing.interface";
+import { ListingCategory } from "../../enums/listingCategory";
+
+export type FavoriteItemModel = "Home" | "Stay" | "Turf" | "Property";
 
 export interface IFavorite {
     _id?: Types.ObjectId;
     user: Types.ObjectId;
-    listing: Types.ObjectId | IListing;
+    listing: Types.ObjectId | any;
+    itemModel?: FavoriteItemModel;
     category: ListingCategory;
     note?: string;
     isDeleted: boolean;

@@ -1,12 +1,34 @@
 import mongoose from "mongoose";
 import { SiteSettingsModel } from "./siteSettings.model";
+import { siteSettingsRedis } from "./siteSettings.redis";
+
+const parseNestedField = (val: any) => {
+    if (typeof val === "string") {
+        try {
+            return JSON.parse(val);
+        } catch {
+            return val;
+        }
+    }
+    return val;
+};
 
 const getSiteSettings = async () => {
+    // 1. Check Redis cache first
+    const cached = await siteSettingsRedis.getCachedSiteSettings();
+    if (cached) {
+        return cached;
+    }
+
+    // 2. Fetch from MongoDB
     let settings = await SiteSettingsModel.findOne().populate("updatedBy", "name email role profileImage");
 
     if (!settings) {
         settings = await SiteSettingsModel.create({});
     }
+
+    // 3. Cache the fetched document
+    await siteSettingsRedis.setCachedSiteSettings(settings.toObject ? settings.toObject() : settings);
 
     return settings;
 };
@@ -36,33 +58,22 @@ const updateSiteSettings = async (adminId: string, payload: Record<string, any>)
         }
     }
 
-    if (payload.socialLinks) {
-        for (const [key, val] of Object.entries(payload.socialLinks)) {
-            if (val !== undefined) updateSet[`socialLinks.${key}`] = val;
-        }
+    if (payload.ogImage !== undefined) {
+        updateSet["seo.ogImage"] = payload.ogImage;
     }
 
-    if (payload.businessRules) {
-        for (const [key, val] of Object.entries(payload.businessRules)) {
-            if (val !== undefined) updateSet[`businessRules.${key}`] = val;
-        }
-    }
+    const nestedGroups = ["socialLinks", "businessRules", "features", "appSettings", "maintenance", "seo"];
 
-    if (payload.appSettings) {
-        for (const [key, val] of Object.entries(payload.appSettings)) {
-            if (val !== undefined) updateSet[`appSettings.${key}`] = val;
-        }
-    }
-
-    if (payload.maintenance) {
-        for (const [key, val] of Object.entries(payload.maintenance)) {
-            if (val !== undefined) updateSet[`maintenance.${key}`] = val;
-        }
-    }
-
-    if (payload.seo) {
-        for (const [key, val] of Object.entries(payload.seo)) {
-            if (val !== undefined) updateSet[`seo.${key}`] = val;
+    for (const group of nestedGroups) {
+        if (payload[group] !== undefined) {
+            const parsed = parseNestedField(payload[group]);
+            if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+                for (const [key, val] of Object.entries(parsed)) {
+                    if (val !== undefined) {
+                        updateSet[`${group}.${key}`] = val;
+                    }
+                }
+            }
         }
     }
 
@@ -82,6 +93,12 @@ const updateSiteSettings = async (adminId: string, payload: Record<string, any>)
         });
     }
 
+    // Invalidate old cache and update with new settings
+    await siteSettingsRedis.invalidateSiteSettings();
+    if (updated) {
+        await siteSettingsRedis.setCachedSiteSettings(updated.toObject ? updated.toObject() : updated);
+    }
+
     return updated;
 };
 
@@ -89,4 +106,3 @@ export const siteSettingsServices = {
     getSiteSettings,
     updateSiteSettings,
 };
-

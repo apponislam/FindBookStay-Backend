@@ -2,29 +2,69 @@ import { Types } from "mongoose";
 import httpStatus from "http-status";
 import ApiError from "../../../errors/ApiError";
 import { LastViewedModel } from "./lastViewed.model";
-import { ListingModel } from "../listing/listing.model";
-import { ListingCategory } from "../listing/listing.interface";
+import { LastViewedItemModel } from "./lastViewed.interface";
+import { ListingCategory } from "../../enums/listingCategory";
+import { HomeModel } from "../home/home.model";
+import { StayModel } from "../stay/stay.model";
+import { TurfModel } from "../turf/turf.model";
+import { PropertyModel } from "../property/property.model";
 
 /**
  * Record a listing to a user's last viewed history.
  * Strictly maintains a sliding window of max 10 items (replaces the oldest).
+ * Dynamically resolves whether the item is a Home, Stay, Turf, Property, or Listing.
  */
 const recordLastViewed = async (
     userId: string | Types.ObjectId,
     listingId: string | Types.ObjectId,
-    explicitCategory?: ListingCategory
+    explicitCategory?: ListingCategory | string,
+    explicitItemModel?: LastViewedItemModel
 ) => {
     try {
         const userObjId = new Types.ObjectId(userId);
         const listingObjId = new Types.ObjectId(listingId);
 
-        let category = explicitCategory;
+        let category = explicitCategory as ListingCategory | undefined;
+        let itemModel: LastViewedItemModel | undefined = explicitItemModel;
 
-        // Fetch category from listing if not explicitly provided
-        if (!category) {
-            const listing = await ListingModel.findById(listingObjId).select("category");
-            if (!listing) return null;
-            category = listing.category;
+        const categoryMap: Record<string, { category: ListingCategory; model: LastViewedItemModel }> = {
+            HOME: { category: ListingCategory.HOME, model: "Home" },
+            STAY: { category: ListingCategory.STAY, model: "Stay" },
+            TURF: { category: ListingCategory.TURF, model: "Turf" },
+            PROPERTY: { category: ListingCategory.PROPERTY, model: "Property" },
+        };
+
+        if (category && categoryMap[category]) {
+            category = categoryMap[category].category;
+            if (!itemModel) {
+                itemModel = categoryMap[category].model;
+            }
+        }
+
+        // Fetch category & model from collections if not explicitly determined
+        if (!category || !itemModel) {
+            const [home, stay, turf, property] = await Promise.all([
+                HomeModel.findById(listingObjId).select("_id"),
+                StayModel.findById(listingObjId).select("_id"),
+                TurfModel.findById(listingObjId).select("_id"),
+                PropertyModel.findById(listingObjId).select("_id"),
+            ]);
+
+            if (home) {
+                category = ListingCategory.HOME;
+                itemModel = "Home";
+            } else if (stay) {
+                category = ListingCategory.STAY;
+                itemModel = "Stay";
+            } else if (turf) {
+                category = ListingCategory.TURF;
+                itemModel = "Turf";
+            } else if (property) {
+                category = ListingCategory.PROPERTY;
+                itemModel = "Property";
+            } else {
+                return null;
+            }
         }
 
         // 1. Remove existing occurrence of this listing from user's history (prevents duplicates)
@@ -42,12 +82,13 @@ const recordLastViewed = async (
                         $each: [
                             {
                                 listing: listingObjId,
-                                category: category as ListingCategory,
+                                itemModel,
+                                category,
                                 viewedAt: new Date(),
                             },
                         ],
                         $position: 0,
-                        $slice: 10, // Only keep the 10 most recent
+                        $slice: 10,
                     },
                 },
             },

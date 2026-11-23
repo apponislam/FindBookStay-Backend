@@ -3,7 +3,10 @@ import httpStatus from "http-status";
 import ApiError from "../../../errors/ApiError";
 import { ConversationModel } from "./conversation.model";
 import { UserModel } from "../auth/auth.model";
-import { ListingModel } from "../listing/listing.model";
+import { HomeModel } from "../home/home.model";
+import { StayModel } from "../stay/stay.model";
+import { TurfModel } from "../turf/turf.model";
+import { PropertyModel } from "../property/property.model";
 import { emitToUser } from "../../../utils/socket";
 
 const createOrGetConversation = async (userId: string, recipientId: string, listingId?: string, initialMessage?: string) => {
@@ -17,8 +20,13 @@ const createOrGetConversation = async (userId: string, recipientId: string, list
     }
 
     if (listingId && mongoose.Types.ObjectId.isValid(listingId)) {
-        const listing = await ListingModel.findOne({ _id: listingId, isDeleted: false });
-        if (!listing) {
+        const [home, stay, turf, property] = await Promise.all([
+            HomeModel.findOne({ _id: listingId, isDeleted: false }),
+            StayModel.findOne({ _id: listingId, isDeleted: false }),
+            TurfModel.findOne({ _id: listingId, isDeleted: false }),
+            PropertyModel.findOne({ _id: listingId, isDeleted: false }),
+        ]);
+        if (!home && !stay && !turf && !property) {
             throw new ApiError(httpStatus.NOT_FOUND, "Referenced listing was not found.");
         }
     }

@@ -1,6 +1,13 @@
 import mongoose, { Schema, Model, Types } from "mongoose";
 import { IReview } from "./review.interface";
-import { ListingModel } from "../listing/listing.model";
+import { HomeModel } from "../home/home.model";
+import { StayModel } from "../stay/stay.model";
+import { TurfModel } from "../turf/turf.model";
+import { PropertyModel } from "../property/property.model";
+import { homeRedis } from "../home/home.redis";
+import { stayRedis } from "../stay/stay.redis";
+import { turfRedis } from "../turf/turf.redis";
+import { propertyRedis } from "../property/property.redis";
 
 export interface ReviewModelType extends Model<IReview> {
     calculateAverageRating(listingId: Types.ObjectId | any): Promise<void>;
@@ -14,7 +21,7 @@ const SubRatingsSchema = new Schema(
         location: { type: Number, min: 1, max: 5 },
         value: { type: Number, min: 1, max: 5 },
     },
-    { _id: false }
+    { _id: false },
 );
 
 const ReviewReplySchema = new Schema(
@@ -23,7 +30,7 @@ const ReviewReplySchema = new Schema(
         repliedAt: { type: Date, default: Date.now },
         repliedBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
     },
-    { _id: false }
+    { _id: false },
 );
 
 const ReviewSchema = new Schema<IReview, ReviewModelType>(
@@ -35,8 +42,14 @@ const ReviewSchema = new Schema<IReview, ReviewModelType>(
         },
         listing: {
             type: Schema.Types.ObjectId,
-            ref: "Listing",
+            refPath: "itemModel",
             required: [true, "Listing ID is required."],
+        },
+        itemModel: {
+            type: String,
+            required: [true, "Item model is required."],
+            enum: ["Home", "Stay", "Turf", "Property"],
+            default: "Home",
         },
         rating: {
             type: Number,
@@ -73,7 +86,7 @@ const ReviewSchema = new Schema<IReview, ReviewModelType>(
     {
         timestamps: true,
         versionKey: false,
-    }
+    },
 );
 
 // Indexes
@@ -110,17 +123,23 @@ ReviewSchema.statics.calculateAverageRating = async function (listingId: Types.O
         },
     ]);
 
-    if (stats.length > 0) {
-        await ListingModel.findByIdAndUpdate(listingId, {
-            totalReviews: stats[0].totalReviews,
-            ratingAverage: Math.round(stats[0].ratingAverage * 10) / 10,
-        });
-    } else {
-        await ListingModel.findByIdAndUpdate(listingId, {
-            totalReviews: 0,
-            ratingAverage: 0,
-        });
-    }
+    const totalReviews = stats.length > 0 ? stats[0].totalReviews : 0;
+    const ratingAverage = stats.length > 0 ? Math.round(stats[0].ratingAverage * 10) / 10 : 0;
+
+    await Promise.all([
+        HomeModel.findByIdAndUpdate(targetId, { totalReviews, ratingAverage }),
+        StayModel.findByIdAndUpdate(targetId, { totalReviews, ratingAverage }),
+        TurfModel.findByIdAndUpdate(targetId, { totalReviews, ratingAverage }),
+        PropertyModel.findByIdAndUpdate(targetId, { totalReviews, ratingAverage }),
+    ]);
+
+    const idStr = targetId.toString();
+    await Promise.allSettled([
+        homeRedis.invalidateHome(idStr),
+        stayRedis.invalidateStay(idStr),
+        turfRedis.invalidateTurf(idStr),
+        propertyRedis.invalidateProperty(idStr),
+    ]);
 };
 
 export const ReviewModel = mongoose.model<IReview, ReviewModelType>("Review", ReviewSchema);

@@ -20,4 +20,3 @@ router.post("/reset", auth, settingsControllers.resetMySettings);
 router.get("/user/:userId", auth, authorize(["ADMIN"]), settingsControllers.getUserSettings);
 
 export const settingsRoutes = router;
-

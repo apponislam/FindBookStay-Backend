@@ -2,7 +2,10 @@ import { Types } from "mongoose";
 import crypto from "crypto";
 import httpStatus from "http-status";
 import ApiError from "../../../errors/ApiError";
-import { ListingModel } from "../listing/listing.model";
+import { HomeModel } from "../home/home.model";
+import { StayModel } from "../stay/stay.model";
+import { TurfModel } from "../turf/turf.model";
+import { PropertyModel } from "../property/property.model";
 import { ListingViewModel } from "./listingView.model";
 
 /**
@@ -56,7 +59,12 @@ const recordListingView = async (
         });
 
         // 5. New unique view confirmed: atomically increment viewsCount on the listing
-        await ListingModel.updateOne({ _id: listingId }, { $inc: { viewsCount: 1 } });
+        await Promise.all([
+            HomeModel.updateOne({ _id: listingId }, { $inc: { viewsCount: 1 } }),
+            StayModel.updateOne({ _id: listingId }, { $inc: { viewsCount: 1 } }),
+            TurfModel.updateOne({ _id: listingId }, { $inc: { viewsCount: 1 } }),
+            PropertyModel.updateOne({ _id: listingId }, { $inc: { viewsCount: 1 } }),
+        ]);
     } catch (err: any) {
         // E11000 duplicate key error means this visitor already viewed this listing within the 24h TTL window.
         if (err.code === 11000) {
@@ -73,7 +81,14 @@ const getListingViewAnalytics = async (
     listingId: string,
     reqUser: { _id: string; role: string }
 ) => {
-    const listing = await ListingModel.findById(listingId).select("title createdBy owner viewsCount");
+    const [home, stay, turf, property] = await Promise.all([
+        HomeModel.findById(listingId).select("title createdBy owner viewsCount"),
+        StayModel.findById(listingId).select("title createdBy owner viewsCount"),
+        TurfModel.findById(listingId).select("title createdBy owner viewsCount"),
+        PropertyModel.findById(listingId).select("title createdBy owner viewsCount"),
+    ]);
+    const listing = home || stay || turf || property;
+
     if (!listing) {
         throw new ApiError(httpStatus.NOT_FOUND, "Listing not found.");
     }

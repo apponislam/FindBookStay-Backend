@@ -454,6 +454,7 @@ export const uploadSiteAssets = (req: Request, res: Response, next: NextFunction
         { name: "siteLogo", maxCount: 1 },
         { name: "favicon", maxCount: 1 },
         { name: "siteFavicon", maxCount: 1 },
+        { name: "ogImage", maxCount: 1 },
     ]);
 
     upload(req, res, async (err: any) => {
@@ -491,6 +492,25 @@ export const uploadSiteAssets = (req: Request, res: Response, next: NextFunction
                         format: "webp",
                     });
                     req.body.siteFavicon = optimizedFavicon.relativePath;
+                }
+
+                const ogFile = filesMap["ogImage"]?.[0];
+                if (ogFile) {
+                    const optimizedOg = await optimizeBuffer(ogFile.buffer, "site", {
+                        maxWidth: 1200,
+                        maxHeight: 630,
+                        quality: 85,
+                        format: "webp",
+                    });
+                    if (!req.body.seo) req.body.seo = {};
+                    if (typeof req.body.seo === "string") {
+                        try {
+                            req.body.seo = JSON.parse(req.body.seo);
+                        } catch {}
+                    }
+                    if (typeof req.body.seo === "object") {
+                        req.body.seo.ogImage = optimizedOg.relativePath;
+                    }
                 }
             }
         } catch (sharpErr) {

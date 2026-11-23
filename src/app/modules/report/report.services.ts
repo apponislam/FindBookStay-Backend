@@ -9,7 +9,10 @@ import {
     ReportPriority,
 } from "./report.interface";
 import { ReportModel } from "./report.model";
-import { ListingModel } from "../listing/listing.model";
+import { HomeModel } from "../home/home.model";
+import { StayModel } from "../stay/stay.model";
+import { TurfModel } from "../turf/turf.model";
+import { PropertyModel } from "../property/property.model";
 import { UserModel } from "../auth/auth.model";
 import { activityLogServices } from "../activityLog/activityLog.services";
 
@@ -33,7 +36,13 @@ const createReport = async (
         }
 
         reportedListingId = new Types.ObjectId(payload.reportedListing as any);
-        const listing = await ListingModel.findOne({ _id: reportedListingId, isDeleted: false });
+        const [home, stay, turf, property] = await Promise.all([
+            HomeModel.findOne({ _id: reportedListingId, isDeleted: false }),
+            StayModel.findOne({ _id: reportedListingId, isDeleted: false }),
+            TurfModel.findOne({ _id: reportedListingId, isDeleted: false }),
+            PropertyModel.findOne({ _id: reportedListingId, isDeleted: false }),
+        ]);
+        const listing = home || stay || turf || property;
 
         if (!listing) {
             throw new ApiError(httpStatus.NOT_FOUND, "The listing you are trying to report does not exist.");
